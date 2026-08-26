@@ -31,6 +31,7 @@ export type BeadsDiscoveryOptions = {
   env?: NodeJS.ProcessEnv
   now?: () => Date
   runner?: BeadsProcessRunner
+  resultLimit?: number
 }
 
 export type BeadsDiscovery = {
@@ -65,7 +66,7 @@ export function createBeadsDiscovery(options: BeadsDiscoveryOptions): BeadsDisco
       if (result.exitCode !== 0) return []
       if (Buffer.byteLength(result.stdout, "utf8") > maxOutputBytes) return []
       const issues = parseIssues(result.stdout, now)
-      return rankIssues(issues, query).slice(0, 5)
+      return rankIssues(issues, query).slice(0, options.resultLimit ?? 5)
     },
   }
 }

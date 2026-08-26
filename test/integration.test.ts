@@ -35,5 +35,5 @@ test("TUI module registers public session_prompt replacement", async () => {
 })
 
 test("server target exposes a loadable public plugin entrypoint", () => {
-  assert.deepEqual(createServerPlugin({ directory: "/repo" }), {})
+  assert.equal(typeof createServerPlugin({ directory: "/repo" })["chat.message"], "function")
 })
