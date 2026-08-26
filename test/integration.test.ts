@@ -57,7 +57,7 @@ test("server target exposes a loadable public plugin entrypoint", () => {
   assert.equal(typeof createServerPlugin({ directory: "/repo" })["chat.message"], "function")
 })
 
-test("selected TUI reference reaches server context without changing visible prompt", async () => {
+test("selected Beads reference reaches server context without changing visible prompt", async () => {
   const replacement = createPromptReplacement("Use bd:query")
   replacement.dispatch({ type: "select", id: "issue-one" })
   const visiblePrompt = replacement.editor.text

@@ -55,12 +55,24 @@ editing or submission.
 
 ## Verification
 
-`npm run verify` runs TypeScript checking, Node tests, the target OpenTUI/Bun
+`npm run verify` runs TypeScript checking, Node tests, the OpenTUI/Bun component
 smoke tests, and the build. The tested dependency versions are:
 
 - OpenCode plugin API `1.18.23`.
 - OpenTUI packages `0.4.5`.
 - Bun `1.3.10` for the TUI smoke test.
+
+For target OpenCode runtime smoke testing, build the package and start
+OpenCode `1.18.23` from this worktree. Open an existing session with
+`--session`, type `bd:`, select an issue, and submit the prompt. Confirm that
+the visible reference remains `bd:<issue-id>` and that the submitted context
+contains compact issue metadata.
+
+```sh
+npm run build
+npm exec --yes --package=opencode-ai@1.18.23 -- opencode \
+  --session <session-id> "$PWD"
+```
 
 The package exposes separate `./server`, `./tui`, and `./shared` entrypoints.
 It does not modify or fork OpenCode, publish to npm, or configure CI.

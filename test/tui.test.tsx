@@ -331,7 +331,7 @@ test(
 )
 
 test(
-  "discovery failure leaves prompt submission usable",
+  "Beads issue search failure leaves prompt submission usable",
   { skip: process.versions.bun ? false : "OpenTUI native smoke test requires Bun" },
   async () => {
     let customPrompt: TuiPromptRef | undefined
