@@ -329,3 +329,33 @@ test(
     setup.renderer.destroy()
   },
 )
+
+test(
+  "discovery failure leaves prompt submission usable",
+  { skip: process.versions.bun ? false : "OpenTUI native smoke test requires Bun" },
+  async () => {
+    let customPrompt: TuiPromptRef | undefined
+    const bridge = createApi(() => {})
+    const setup = await renderPrompt(
+      bridge.api,
+      { ...slot(), ref: (value) => (customPrompt = value) },
+      theme,
+      discoveryFor(async () => {
+        throw new Error("bd unavailable")
+      }),
+    )
+
+    await setup.flush()
+    await setup.mockInput.typeText("send bd:missing")
+    await new Promise((resolve) => setTimeout(resolve, 180))
+    await setup.flush()
+
+    assert.match(setup.captureCharFrame(), /No matching items/)
+    setup.mockInput.pressEnter()
+    await setup.flush()
+
+    assert.equal(bridge.bridgeSubmitCount, 1)
+    assert.equal(customPrompt?.current.input, "")
+    setup.renderer.destroy()
+  },
+)

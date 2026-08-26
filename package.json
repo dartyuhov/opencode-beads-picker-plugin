@@ -25,6 +25,9 @@
     "opencode.json",
     "tui.json"
   ],
+  "engines": {
+    "opencode": ">=1.18.23 <2.0.0"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "node --test --import tsx test/**/*.test.ts test/**/*.test.tsx",
