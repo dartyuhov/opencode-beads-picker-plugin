@@ -49,6 +49,21 @@ test("revalidates references and fails silently", async () => {
   assert.deepEqual(output.parts, [{ type: "text", text: "bd:stale" }])
 })
 
+test("omits stale references while retaining fresh metadata", async () => {
+  const hooks = createServerPlugin({
+    directory: "/repo",
+    runner: async () => ({ exitCode: 0, stdout: JSON.stringify([issue]) }),
+  })
+  const output = { parts: [{ type: "text" as const, text: "bd:stale bd:opencode-beads-plugin-on0.4" }] }
+
+  await hooks["chat.message"]?.({ sessionID: "session" }, output as never)
+
+  assert.equal(output.parts[0].text, "bd:stale bd:opencode-beads-plugin-on0.4")
+  assert.equal(output.parts.length, 2)
+  assert.doesNotMatch((output.parts[1] as { text: string }).text, /id: stale/)
+  assert.match((output.parts[1] as { text: string }).text, /id: opencode-beads-plugin-on0\.4/)
+})
+
 test("refreshes Beads on every submitted prompt", async () => {
   let calls = 0
   const hooks = createServerPlugin({
@@ -82,11 +97,11 @@ test("does not join separate text parts into a reference", async () => {
 
   await hooks["chat.message"]?.({ sessionID: "session" }, output as never)
 
-  assert.equal(calls, 0)
+  assert.equal(calls, 1)
   assert.equal(output.parts.length, 2)
 })
 
-test("does not query or inject context for normal prompts", async () => {
+test("refreshes without injecting context for normal prompts", async () => {
   let calls = 0
   const hooks = createServerPlugin({
     directory: "/repo",
@@ -96,6 +111,6 @@ test("does not query or inject context for normal prompts", async () => {
 
   await hooks["chat.message"]?.({ sessionID: "session" }, output as never)
 
-  assert.equal(calls, 0)
+  assert.equal(calls, 1)
   assert.equal(output.parts.length, 1)
 })

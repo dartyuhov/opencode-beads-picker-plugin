@@ -36,6 +36,7 @@ export type BeadsDiscoveryOptions = {
 
 export type BeadsDiscovery = {
   search(query: string): Promise<BeadsIssue[]>
+  resolve(ids: string[]): Promise<BeadsIssue[]>
 }
 
 const excludedStatuses = new Set(["closed", "in_progress", "deferred"])
@@ -46,29 +47,41 @@ const fourteenDaysMs = 14 * 24 * 60 * 60 * 1000
 export function createBeadsDiscovery(options: BeadsDiscoveryOptions): BeadsDiscovery {
   return {
     async search(query) {
-      const now = options.now?.() ?? new Date()
-      const request: BeadsProcessRequest = {
-        command: "bd",
-        args: ["list", "--json", "--limit", "1000", "--sort", "updated"],
-        cwd: options.worktree ?? options.directory,
-        env: options.env ?? process.env,
-        timeoutMs: requestTimeoutMs,
-        maxOutputBytes,
-      }
-
-      let result: BeadsProcessResult
-      try {
-        result = await withTimeout((options.runner ?? runBeadsProcess)(request), requestTimeoutMs)
-      } catch {
-        return []
-      }
-
-      if (result.exitCode !== 0) return []
-      if (Buffer.byteLength(result.stdout, "utf8") > maxOutputBytes) return []
-      const issues = parseIssues(result.stdout, now)
-      return rankIssues(issues, query).slice(0, options.resultLimit ?? 5)
+      const issues = await loadIssues(options)
+      return rankIssues(issues, query).slice(0, 5)
+    },
+    async resolve(ids) {
+      const issues = await loadIssues(options)
+      const byId = new Map(issues.map((issue) => [issue.id, issue]))
+      return ids.flatMap((id) => {
+        const issue = byId.get(id)
+        return issue ? [issue] : []
+      })
     },
   }
+}
+
+async function loadIssues(options: BeadsDiscoveryOptions): Promise<BeadsIssue[]> {
+  const now = options.now?.() ?? new Date()
+  const request: BeadsProcessRequest = {
+    command: "bd",
+    args: ["list", "--json", "--limit", "1000", "--sort", "updated"],
+    cwd: options.worktree ?? options.directory,
+    env: options.env ?? process.env,
+    timeoutMs: requestTimeoutMs,
+    maxOutputBytes,
+  }
+
+  let result: BeadsProcessResult
+  try {
+    result = await withTimeout((options.runner ?? runBeadsProcess)(request), requestTimeoutMs)
+  } catch {
+    return []
+  }
+
+  if (result.exitCode !== 0) return []
+  if (Buffer.byteLength(result.stdout, "utf8") > maxOutputBytes) return []
+  return parseIssues(result.stdout, now)
 }
 
 function parseIssues(stdout: string, now: Date): BeadsIssue[] {

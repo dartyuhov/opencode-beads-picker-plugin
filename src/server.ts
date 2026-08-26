@@ -17,16 +17,14 @@ export function createServerPlugin(context: ServerPluginContext): Hooks {
         .filter((part): part is typeof part & { type: "text"; text: string } => part.type === "text" && "text" in part)
         .flatMap((part) => beadsReferences(part.text))
         .filter((id, index, references) => references.indexOf(id) === index)
-      if (!ids.length) return
 
       const discovery = createBeadsDiscovery({
         directory: context.directory,
         worktree: context.worktree,
         now: context.now,
         runner: context.runner,
-        resultLimit: Number.MAX_SAFE_INTEGER,
       })
-      const metadata = formatBeadsContext(ids, await discovery.search(""))
+      const metadata = formatBeadsContext(ids, await discovery.resolve(ids))
       if (metadata) {
         output.parts.push({
           id: randomUUID(),
