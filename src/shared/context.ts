@@ -24,7 +24,7 @@ export function formatBeadsContext(ids: string[], issues: BeadsIssue[]): string 
     ...resolved.flatMap((issue) => [
       `- id: ${issue.id}`,
       `  title: ${issue.title}`,
-      `  status: ${issue.status ?? "unknown"}`,
+      ...(issue.status === undefined ? [] : [`  status: ${issue.status}`]),
       ...(issue.priority === undefined ? [] : [`  priority: ${issue.priority}`]),
     ]),
     "</beads-context>",

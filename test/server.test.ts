@@ -114,3 +114,17 @@ test("refreshes without injecting context for normal prompts", async () => {
   assert.equal(calls, 1)
   assert.equal(output.parts.length, 1)
 })
+
+test("does not invent missing optional metadata", async () => {
+  const { status: _status, ...withoutStatus } = issue
+  const hooks = createServerPlugin({
+    directory: "/repo",
+    runner: async () => ({ exitCode: 0, stdout: JSON.stringify([withoutStatus]) }),
+  })
+  const output = { parts: [{ type: "text" as const, text: "bd:opencode-beads-plugin-on0.4" }] }
+
+  await hooks["chat.message"]?.({ sessionID: "session" }, output as never)
+
+  assert.equal(output.parts.length, 2)
+  assert.doesNotMatch((output.parts[1] as { text: string }).text, /status:/)
+})

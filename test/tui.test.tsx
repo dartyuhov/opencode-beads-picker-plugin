@@ -3,6 +3,7 @@ import test from "node:test"
 import assert from "node:assert/strict"
 import { testRender } from "@opentui/solid"
 import type { TuiPluginApi, TuiPromptInfo, TuiPromptProps, TuiPromptRef, TuiTheme } from "@opencode-ai/plugin/tui"
+import type { BeadsDiscovery, BeadsIssue } from "../src/shared/discovery.js"
 import { PromptEditor } from "../src/tui.js"
 
 const theme = {
@@ -39,7 +40,7 @@ function createApi(onBridgeSubmit: () => void, status: "idle" | "busy" = "idle")
   }
 
   const api = {
-    state: { session: { status: () => ({ type: status }) } },
+    state: { path: { directory: "/repo", worktree: "/repo" }, session: { status: () => ({ type: status }) } },
     event: { on: () => () => {} },
     ui: { dialog: { open: false }, Prompt },
   } as unknown as TuiPluginApi
@@ -59,11 +60,15 @@ function createApi(onBridgeSubmit: () => void, status: "idle" | "busy" = "idle")
   }
 }
 
-function renderPrompt(api: TuiPluginApi, slot: ReturnType<typeof slot>, themeValue = theme) {
+function renderPrompt(api: TuiPluginApi, slot: ReturnType<typeof slot>, themeValue = theme, discovery?: BeadsDiscovery) {
   return testRender(
-    () => <PromptEditor api={api} theme={themeValue} slot={slot} />,
+    () => <PromptEditor api={api} theme={themeValue} slot={slot} discovery={discovery} />,
     { width: 60, height: 10, kittyKeyboard: true },
   )
+}
+
+function discoveryFor(search: (query: string) => BeadsIssue[] | Promise<BeadsIssue[]>): BeadsDiscovery {
+  return { search: async (query) => search(query) }
 }
 
 function slot(disabled = false) {
@@ -160,6 +165,167 @@ test(
     await setup.flush()
 
     assert.equal(customPrompt?.current.input, "one\ntw pastedo")
+    setup.renderer.destroy()
+  },
+)
+
+test(
+  "live picker renders issue metadata, navigates, and replaces only active reference",
+  { skip: process.versions.bun ? false : "OpenTUI native smoke test requires Bun" },
+  async () => {
+    let customPrompt: TuiPromptRef | undefined
+    const bridge = createApi(() => {})
+    const first: BeadsIssue = { id: "issue-one", title: "First issue", status: "open", priority: "P1" }
+    const second: BeadsIssue = { id: "issue-two", title: "Second issue", status: "open", priority: 2 }
+    const setup = await renderPrompt(
+      bridge.api,
+      { ...slot(), ref: (value) => (customPrompt = value) },
+      theme,
+      discoveryFor(() => [first, second]),
+    )
+
+    await setup.flush()
+    await setup.mockInput.typeText("before bd:first after bd:")
+    await new Promise((resolve) => setTimeout(resolve, 180))
+    await setup.flush()
+
+    const frame = setup.captureCharFrame()
+    assert.match(frame, /issue-one/)
+    assert.match(frame, /First issue/)
+    assert.match(frame, /open/)
+    assert.match(frame, /P1/)
+    assert.match(frame, /issue-two/)
+
+    setup.mockInput.pressArrow("down")
+    await setup.flush()
+    setup.mockInput.pressEnter()
+    await setup.flush()
+
+    assert.equal(customPrompt?.current.input, "before bd:first after bd:issue-two ")
+    assert.doesNotMatch(setup.captureCharFrame(), /Second issue/)
+    setup.renderer.destroy()
+  },
+)
+
+test(
+  "live picker shows no matching items and dismisses without changing prompt",
+  { skip: process.versions.bun ? false : "OpenTUI native smoke test requires Bun" },
+  async () => {
+    let customPrompt: TuiPromptRef | undefined
+    const bridge = createApi(() => {})
+    const setup = await renderPrompt(
+      bridge.api,
+      { ...slot(), ref: (value) => (customPrompt = value) },
+      theme,
+      discoveryFor(() => []),
+    )
+
+    await setup.flush()
+    await setup.mockInput.typeText("keep bd:missing")
+    await new Promise((resolve) => setTimeout(resolve, 180))
+    await setup.flush()
+
+    assert.match(setup.captureCharFrame(), /No matching items/)
+    setup.mockInput.pressEscape()
+    await setup.flush()
+    assert.equal(customPrompt?.current.input, "keep bd:missing")
+    assert.doesNotMatch(setup.captureCharFrame(), /No matching items/)
+    setup.renderer.destroy()
+  },
+)
+
+test(
+  "live picker browses bare references and selects with the mouse",
+  { skip: process.versions.bun ? false : "OpenTUI native smoke test requires Bun" },
+  async () => {
+    let customPrompt: TuiPromptRef | undefined
+    const queries: string[] = []
+    const bridge = createApi(() => {})
+    const first: BeadsIssue = { id: "issue-one", title: "First issue", status: "open", priority: "P1" }
+    const second: BeadsIssue = { id: "issue-two", title: "Second issue", status: "open", priority: 2 }
+    const setup = await renderPrompt(
+      bridge.api,
+      { ...slot(), ref: (value) => (customPrompt = value) },
+      theme,
+      discoveryFor((query) => {
+        queries.push(query)
+        return [first, second]
+      }),
+    )
+
+    await setup.flush()
+    await setup.mockInput.typeText("Use bd:")
+    await new Promise((resolve) => setTimeout(resolve, 180))
+    await setup.flush()
+
+    assert.deepEqual(queries.at(-1), "")
+    await setup.mockMouse.click(5, 3)
+    await setup.flush()
+
+    assert.equal(customPrompt?.current.input, "Use bd:issue-two ")
+    setup.renderer.destroy()
+  },
+)
+
+test(
+  "live picker keeps multiple references independent while cursor moves",
+  { skip: process.versions.bun ? false : "OpenTUI native smoke test requires Bun" },
+  async () => {
+    let customPrompt: TuiPromptRef | undefined
+    const queries: string[] = []
+    const bridge = createApi(() => {})
+    const first: BeadsIssue = { id: "issue-one", title: "First issue", status: "open", priority: "P1" }
+    const second: BeadsIssue = { id: "issue-two", title: "Second issue", status: "open", priority: 2 }
+    const setup = await renderPrompt(
+      bridge.api,
+      { ...slot(), ref: (value) => (customPrompt = value) },
+      theme,
+      discoveryFor((query) => {
+        queries.push(query)
+        return query === "one" ? [first] : [second]
+      }),
+    )
+
+    await setup.flush()
+    await setup.mockInput.typeText("bd:one and bd:two")
+    await new Promise((resolve) => setTimeout(resolve, 180))
+    await setup.flush()
+    assert.equal(queries.at(-1), "two")
+
+    for (let index = 0; index < 11; index++) setup.mockInput.pressArrow("left")
+    await new Promise((resolve) => setTimeout(resolve, 180))
+    await setup.flush()
+    assert.equal(queries.at(-1), "one")
+
+    setup.mockInput.pressEnter()
+    await setup.flush()
+    assert.equal(customPrompt?.current.input, "bd:issue-one and bd:two")
+    setup.renderer.destroy()
+  },
+)
+
+test(
+  "live picker selects the active result with Tab",
+  { skip: process.versions.bun ? false : "OpenTUI native smoke test requires Bun" },
+  async () => {
+    let customPrompt: TuiPromptRef | undefined
+    const bridge = createApi(() => {})
+    const issue: BeadsIssue = { id: "issue-one", title: "First issue", status: "open", priority: "P1" }
+    const setup = await renderPrompt(
+      bridge.api,
+      { ...slot(), ref: (value) => (customPrompt = value) },
+      theme,
+      discoveryFor(() => [issue]),
+    )
+
+    await setup.flush()
+    await setup.mockInput.typeText("Use bd:one")
+    await new Promise((resolve) => setTimeout(resolve, 180))
+    await setup.flush()
+    setup.mockInput.pressTab()
+    await setup.flush()
+
+    assert.equal(customPrompt?.current.input, "Use bd:issue-one ")
     setup.renderer.destroy()
   },
 )
