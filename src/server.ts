@@ -13,11 +13,10 @@ export type ServerPluginContext = {
 export function createServerPlugin(context: ServerPluginContext): Hooks {
   return {
     "chat.message": async (input, output) => {
-      const text = output.parts
+      const ids = output.parts
         .filter((part): part is typeof part & { type: "text"; text: string } => part.type === "text" && "text" in part)
-        .map((part) => part.text)
-        .join("\n")
-      const ids = beadsReferences(text)
+        .flatMap((part) => beadsReferences(part.text))
+        .filter((id, index, references) => references.indexOf(id) === index)
       if (!ids.length) return
 
       const discovery = createBeadsDiscovery({
