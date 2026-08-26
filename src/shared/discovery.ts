@@ -31,7 +31,6 @@ export type BeadsDiscoveryOptions = {
   env?: NodeJS.ProcessEnv
   now?: () => Date
   runner?: BeadsProcessRunner
-  resultLimit?: number
 }
 
 export type BeadsDiscovery = {
