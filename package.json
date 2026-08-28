@@ -31,9 +31,10 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "node --test --import tsx test/**/*.test.ts test/**/*.test.tsx",
+    "test:target": "node --test --import tsx test/target-runtime.test.ts",
     "test:tui": "bun test test/tui.test.tsx",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "verify": "npm run typecheck && npm test && npm run test:tui && npm run build"
+    "verify": "npm run typecheck && npm test && npm run test:tui && npm run build && npm run test:target"
   },
   "devDependencies": {
     "@opencode-ai/plugin": "1.18.23",

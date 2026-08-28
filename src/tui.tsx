@@ -3,16 +3,15 @@ import type {
   TuiPluginApi,
   TuiPluginModule,
   TuiHostSlotMap,
-  TuiPromptInfo,
   TuiPromptRef,
   TuiTheme,
 } from "@opencode-ai/plugin/tui"
-import type { BoxRenderable, KeyBinding, TextareaRenderable, TextRenderable } from "@opentui/core"
+import type { BoxRenderable, TextRenderable } from "@opentui/core"
 import { createEffect, createSignal, onCleanup } from "solid-js/dist/solid.js"
 import { createBeadsDiscovery, createEditorState, createPickerController, reduceEditor, type BeadsDiscovery, type EditorAction, type EditorState, type PickerController } from "./shared/index.js"
 
 export type PromptReplacement = {
-  slot: "session_prompt"
+  slot: "session_prompt" | "home_prompt"
   editor: EditorState
   dispatch(action: EditorAction): void
   submit(): string | null
@@ -38,26 +37,23 @@ export function createPromptReplacement(initialText = ""): PromptReplacement {
 type PromptEditorProps = {
   api: TuiPluginApi
   theme: TuiTheme
-  slot: TuiHostSlotMap["session_prompt"]
+  slot: TuiHostSlotMap["home_prompt"] | TuiHostSlotMap["session_prompt"]
   discovery?: BeadsDiscovery
 }
 
 export function PromptEditor(props: PromptEditorProps) {
-  let input: TextareaRenderable | undefined
-  let bridge: TuiPromptRef | undefined
-  let submitWhenReady = false
-  let syncingFromPicker = false
-  let parts: TuiPromptInfo["parts"] = []
+  let prompt: TuiPromptRef | undefined
   const [busy, setBusy] = createSignal(false)
-  const editor = createPromptReplacement()
+  const sessionID = "session_id" in props.slot ? props.slot.session_id : undefined
   const discovery = props.discovery ?? createBeadsDiscovery({
     directory: props.api.state.path.directory,
     worktree: props.api.state.path.worktree,
   })
   const picker = createPickerController("", { discovery })
   const [pickerVersion, setPickerVersion] = createSignal(0)
-  const visible = () => props.slot.visible !== false
-  const blocked = () => Boolean(props.slot.disabled) || busy()
+  const visible = () => !(("visible" in props.slot) && props.slot.visible === false)
+  const disabled = () => "disabled" in props.slot && Boolean(props.slot.disabled)
+  const blocked = () => disabled() || busy()
   const pickerState = () => {
     pickerVersion()
     return picker.state
@@ -66,90 +62,48 @@ export function PromptEditor(props: PromptEditorProps) {
   const pickerLoading = () => pickerState().loading
   const pickerResults = () => pickerState().results
 
-  const status = props.api.state.session.status(props.slot.session_id)
+  const status = sessionID ? props.api.state.session.status(sessionID) : undefined
   setBusy(status?.type !== undefined && status.type !== "idle")
 
   const unlisten = props.api.event.on("session.status", (event) => {
-    if (event.properties.sessionID !== props.slot.session_id) return
+    if (!sessionID || event.properties.sessionID !== sessionID) return
     setBusy(event.properties.status.type !== "idle")
   })
   onCleanup(unlisten)
   onCleanup(picker.subscribe(() => {
     setPickerVersion((version) => version + 1)
-    syncInputFromPicker()
+    syncPromptFromPicker()
   }))
   onCleanup(() => picker.dispose())
 
-  const promptRef: TuiPromptRef = {
-    get focused() {
-      return input?.focused ?? false
-    },
-    get current() {
-      return {
-        input: input?.plainText ?? editor.editor.text,
-        parts,
-      }
-    },
-    set(prompt) {
-      input?.setText(prompt.input)
-      input?.gotoBufferEnd()
-      parts = prompt.parts
-      editor.dispatch({ type: "set-text", text: prompt.input, cursor: prompt.input.length })
-      picker.dispatch({ type: "set-text", text: prompt.input, cursor: prompt.input.length })
-    },
-    reset() {
-      parts = []
-      input?.clear()
-      editor.dispatch({ type: "set-text", text: "", cursor: 0 })
-      picker.dispatch({ type: "set-text", text: "", cursor: 0 })
-    },
-    blur() {
-      input?.blur()
-    },
-    focus() {
-      if (visible() && !blocked()) input?.focus()
-    },
-    submit() {
-      submit()
-    },
-  }
-
   function focusPrompt() {
-    if (!input || input.isDestroyed) return
+    if (!prompt) return
     if (!visible() || blocked() || props.api.ui.dialog.open) {
-      input.blur()
+      prompt.blur()
       return
     }
-    input.focus()
+    prompt.focus()
   }
 
-  function handleBridgeSubmit() {
-    if (!input || input.isDestroyed) return
-    submitWhenReady = false
-    parts = []
-    input.clear()
-    editor.dispatch({ type: "set-text", text: "", cursor: 0 })
-    picker.dispatch({ type: "set-text", text: "", cursor: 0 })
-    props.slot.on_submit?.()
+  function handleSubmit() {
+    queueMicrotask(() => {
+      syncPrompt()
+      picker.close()
+      if ("on_submit" in props.slot) props.slot.on_submit?.()
+    })
   }
 
-  function syncEditor() {
-    if (!input || input.isDestroyed) return
-    editor.dispatch({ type: "set-text", text: input.plainText, cursor: input.cursorOffset })
-    if (!syncingFromPicker) picker.dispatch({ type: "set-text", text: input.plainText, cursor: input.cursorOffset })
+  function syncPrompt() {
+    if (!prompt) return
+    const input = prompt.current.input
+    if (picker.editor.text === input && picker.editor.cursor === input.length) return
+    picker.dispatch({ type: "set-text", text: input, cursor: input.length })
   }
 
-  function syncInputFromPicker() {
-    if (!input || input.isDestroyed) return
-    if (input.plainText === picker.editor.text && input.cursorOffset === picker.editor.cursor) return
-    syncingFromPicker = true
-    try {
-      input.setText(picker.editor.text)
-      input.cursorOffset = picker.editor.cursor
-    } finally {
-      syncingFromPicker = false
-    }
-    editor.dispatch({ type: "set-text", text: picker.editor.text, cursor: picker.editor.cursor })
+  function syncPromptFromPicker() {
+    if (!prompt || prompt.current.input === picker.editor.text) return
+    const current = prompt.current
+    prompt.set({ ...current, input: picker.editor.text })
   }
 
   function pickerKey(name: string): "ArrowUp" | "ArrowDown" | "Enter" | "Tab" | "Escape" | undefined {
@@ -162,6 +116,8 @@ export function PromptEditor(props: PromptEditorProps) {
         return "ArrowDown"
       case "return":
       case "linefeed":
+      case "enter":
+      case "kpenter":
         return "Enter"
       case "tab":
         return "Tab"
@@ -172,116 +128,66 @@ export function PromptEditor(props: PromptEditorProps) {
     }
   }
 
-  function handlePickerKey(event: Parameters<NonNullable<TextareaRenderable["onKeyDown"]>>[0]) {
-    if (!pickerOpen()) return false
-    const key = pickerKey(event.name)
-    if (!key) return false
-    if (key !== "Escape" && (pickerLoading() || pickerResults().length === 0)) return false
-    event.preventDefault()
-    picker.interact({ type: "key", key })
-    return true
-  }
+  const removeKeyIntercept = props.api.keymap.intercept(
+    "key",
+    (ctx) => {
+      if (ctx.event.eventType === "release" || !prompt?.focused || blocked() || !pickerOpen()) return
+      if (ctx.event.ctrl || ctx.event.shift || ctx.event.meta || ctx.event.super || ctx.event.hyper) return
+      const key = pickerKey(ctx.event.name)
+      if (!key) return
+      if ((key === "Enter" || key === "Tab") && (pickerLoading() || pickerResults().length === 0)) return
+      ctx.consume()
+      picker.interact({ type: "key", key })
+    },
+    { priority: 10_000 },
+  )
+  onCleanup(removeKeyIntercept)
 
-  function submit() {
-    if (!input || input.isDestroyed) return
-    editor.dispatch({ type: "set-disabled", disabled: Boolean(props.slot.disabled) })
-    editor.dispatch({ type: "set-loading", loading: busy() })
-    syncEditor()
-    const value = editor.submit()
-    if (!value) return
-    if (!bridge) {
-      submitWhenReady = true
-      return
-    }
-    bridge.set({ input: value, parts })
-    bridge.submit()
-  }
+  const removeAfterIntercept = props.api.keymap.intercept(
+    "key:after",
+    (ctx) => {
+      if (ctx.event.eventType === "release" || !prompt?.focused) return
+      queueMicrotask(syncPrompt)
+    },
+    { priority: -10_000 },
+  )
+  onCleanup(removeAfterIntercept)
 
   createEffect(() => {
-    editor.dispatch({ type: "set-disabled", disabled: Boolean(props.slot.disabled) })
-    editor.dispatch({ type: "set-loading", loading: busy() })
-    visible()
-    blocked()
+    if (!visible() || blocked()) picker.close()
     props.api.ui.dialog.open
     focusPrompt()
   })
 
-  onCleanup(() => {
-    props.slot.ref?.(undefined)
-  })
-
   const colors = props.theme.current
   const Prompt = props.api.ui.Prompt
+  const Slot = props.api.ui.Slot
+  const placeholders = sessionID
+    ? undefined
+    : {
+        normal: ["Fix a TODO in the codebase", "What is the tech stack of this project?", "Fix broken tests"],
+        shell: ["ls -la", "git status", "pwd"],
+      }
 
   return (
     <>
-      <box visible={visible()} width="100%" flexDirection="column">
-        <box
-          width="100%"
-          border={["left"]}
-          borderColor={colors.borderActive}
-          paddingLeft={2}
-          paddingRight={2}
-          paddingTop={1}
-          backgroundColor={colors.backgroundElement}
-        >
-          <textarea
-            width="100%"
-            minHeight={1}
-            maxHeight={6}
-            textColor={colors.text}
-            focusedTextColor={colors.text}
-            placeholder="Ask anything..."
-            placeholderColor={colors.textMuted}
-            backgroundColor={colors.backgroundElement}
-            focusedBackgroundColor={colors.backgroundElement}
-            cursorColor={blocked() ? colors.backgroundElement : colors.text}
-            keyBindings={[
-              { name: "return", action: "submit" },
-              { name: "return", shift: true, action: "newline" },
-              { name: "return", ctrl: true, action: "newline" },
-              { name: "return", meta: true, action: "newline" },
-            ] satisfies KeyBinding[]}
-            onContentChange={() => {
-              syncEditor()
-              parts = []
-            }}
-            onCursorChange={() => syncEditor()}
-            onKeyDown={(event) => {
-              if (blocked()) {
-                event.preventDefault()
-                return
-              }
-              handlePickerKey(event)
-            }}
-            onPaste={(event) => {
-              if (blocked()) event.preventDefault()
-            }}
-            onSubmit={() => submit()}
-            ref={(value: TextareaRenderable) => {
-              input = value
-              syncEditor()
-              props.slot.ref?.(promptRef)
-              focusPrompt()
-            }}
-          />
-        </box>
-        <PickerView picker={picker} version={pickerVersion} colors={colors} blocked={blocked} />
-        <box height={1} border={["left"]} borderColor={colors.borderActive} />
-      </box>
       <Prompt
-        sessionID={props.slot.session_id}
-        visible={false}
+        sessionID={sessionID}
+        visible={visible()}
         disabled={blocked()}
-        onSubmit={handleBridgeSubmit}
+        onSubmit={handleSubmit}
+        right={sessionID ? <Slot name="session_prompt_right" session_id={sessionID} /> : <Slot name="home_prompt_right" />}
+        placeholders={placeholders}
         ref={(value: TuiPromptRef | undefined) => {
-          bridge = value
-          if (value && submitWhenReady) {
-            submitWhenReady = false
-            submit()
+          prompt = value
+          props.slot.ref?.(value)
+          if (value) {
+            syncPrompt()
+            focusPrompt()
           }
         }}
       />
+      <PickerView picker={picker} version={pickerVersion} colors={colors} blocked={blocked} />
     </>
   )
 }
@@ -423,9 +329,14 @@ function PickerRow(props: PickerRowProps) {
 }
 
 export const tui: TuiPlugin = async (api) => {
+  if (api.plugins?.list?.().some((plugin) => plugin.source !== "internal" && plugin.enabled && plugin.id !== "opencode-beads-plugin")) return
+
   api.slots.register({
     slots: {
       session_prompt(ctx, props) {
+        return <PromptEditor api={api} theme={ctx.theme} slot={props} />
+      },
+      home_prompt(ctx, props) {
         return <PromptEditor api={api} theme={ctx.theme} slot={props} />
       },
     },

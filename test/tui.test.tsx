@@ -2,7 +2,8 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import { testRender } from "@opentui/solid"
-import type { TuiPluginApi, TuiPromptInfo, TuiPromptProps, TuiPromptRef, TuiTheme } from "@opencode-ai/plugin/tui"
+import type { TuiHostSlotMap, TuiPluginApi, TuiPromptInfo, TuiPromptProps, TuiPromptRef, TuiTheme } from "@opencode-ai/plugin/tui"
+import type { TextareaRenderable } from "@opentui/core"
 import type { BeadsDiscovery, BeadsIssue } from "../src/shared/discovery.js"
 import { PromptEditor } from "../src/tui.js"
 
@@ -15,63 +16,155 @@ const theme = {
   },
 } as unknown as TuiTheme
 
-function createApi(onBridgeSubmit: () => void, status: "idle" | "busy" = "idle") {
-  let bridgePrompt: TuiPromptInfo | undefined
-  let bridgeSubmitCount = 0
-  let bridgeVisible: boolean | undefined
+type PromptKeyEvent = Parameters<NonNullable<TextareaRenderable["onKeyDown"]>>[0]
+type PromptSlot = TuiHostSlotMap["home_prompt"] | TuiHostSlotMap["session_prompt"]
+
+function createNativePromptApi(onSubmit: (prompt: TuiPromptInfo) => void, status: "idle" | "busy" = "idle") {
+  let submittedPrompt: TuiPromptInfo | undefined
+  let submitCount = 0
+  let promptVisible: boolean | undefined
+  let promptText = ""
+  let promptParts: TuiPromptInfo["parts"] = []
+  const interceptors: {
+    key: Array<(ctx: { event: PromptKeyEvent; consume(): void }) => void>
+    "key:after": Array<(ctx: { event: PromptKeyEvent }) => void>
+  } = { key: [], "key:after": [] }
 
   const Prompt = (props: TuiPromptProps) => {
-    bridgeVisible = props.visible
-    props.ref?.({
-      focused: false,
-      current: { input: "", parts: [] },
+    promptVisible = props.visible
+    let input: TextareaRenderable | undefined
+    const promptRef: TuiPromptRef = {
+      get focused() {
+        return input?.focused ?? false
+      },
+      get current() {
+        return { input: promptText, parts: promptParts }
+      },
       set(prompt) {
-        bridgePrompt = prompt
+        promptText = prompt.input
+        promptParts = prompt.parts
+        input?.setText(prompt.input)
+        input?.gotoBufferEnd()
       },
-      reset() {},
-      blur() {},
-      focus() {},
+      reset() {
+        promptText = ""
+        promptParts = []
+        input?.clear()
+      },
+      blur() {
+        input?.blur()
+      },
+      focus() {
+        input?.focus()
+      },
       submit() {
-        bridgeSubmitCount++
-        props.onSubmit?.()
+        submit()
       },
-    })
-    return <box visible={false} />
+    }
+
+    function syncInput() {
+      if (input) promptText = input.plainText
+    }
+
+    function submit() {
+      syncInput()
+      if (props.disabled || !input || !promptText) return
+      submittedPrompt = { input: promptText, parts: promptParts }
+      submitCount++
+      promptText = ""
+      promptParts = []
+      input.clear()
+      props.onSubmit?.()
+      onSubmit(submittedPrompt)
+    }
+
+    function intercept(name: "key" | "key:after", event: PromptKeyEvent) {
+      let consumed = false
+      const context = {
+        event,
+        consume() {
+          consumed = true
+          event.preventDefault()
+          event.stopPropagation()
+        },
+      }
+      for (const handler of interceptors[name]) handler(context)
+      return consumed
+    }
+
+    return (
+      <textarea
+        visible={props.visible !== false}
+        placeholder="Ask anything..."
+        onKeyDown={(event) => {
+          const consumed = intercept("key", event)
+          if (!consumed && props.disabled) {
+            event.preventDefault()
+          } else if (!consumed && event.name === "return") {
+            event.preventDefault()
+            if (event.shift || event.ctrl || event.meta) input?.insertText("\n")
+            else submit()
+          }
+          queueMicrotask(() => intercept("key:after", event))
+        }}
+        onContentChange={syncInput}
+        onSubmit={submit}
+        ref={(value: TextareaRenderable) => {
+          input = value
+          props.ref?.(promptRef)
+          promptRef.focus()
+        }}
+      />
+    )
   }
 
   const api = {
     state: { path: { directory: "/repo", worktree: "/repo" }, session: { status: () => ({ type: status }) } },
     event: { on: () => () => {} },
-    ui: { dialog: { open: false }, Prompt },
+    keymap: {
+      intercept(name: "key" | "key:after", handler: (ctx: never) => void) {
+        interceptors[name].push(handler as never)
+        return () => {
+          const index = interceptors[name].indexOf(handler as never)
+          if (index >= 0) interceptors[name].splice(index, 1)
+        }
+      },
+    },
+    ui: { dialog: { open: false }, Prompt, Slot: () => <box /> },
   } as unknown as TuiPluginApi
 
   return {
     api,
-    get bridgePrompt() {
-      return bridgePrompt
+    get submittedPrompt() {
+      return submittedPrompt
     },
-    get bridgeSubmitCount() {
-      return bridgeSubmitCount
+    get submitCount() {
+      return submitCount
     },
-    get bridgeVisible() {
-      return bridgeVisible
+    get promptVisible() {
+      return promptVisible
     },
-    onBridgeSubmit,
   }
 }
 
-function renderPrompt(api: TuiPluginApi, slot: ReturnType<typeof slot>, themeValue = theme, discovery?: BeadsDiscovery) {
+function renderPrompt(api: TuiPluginApi, promptSlot: PromptSlot, themeValue = theme, discovery?: BeadsDiscovery) {
   return testRender(
-    () => <PromptEditor api={api} theme={themeValue} slot={slot} discovery={discovery} />,
+    () => <PromptEditor api={api} theme={themeValue} slot={promptSlot} discovery={discovery} />,
     { width: 60, height: 10, kittyKeyboard: true },
   )
 }
 
 function discoveryFor(search: (query: string) => BeadsIssue[] | Promise<BeadsIssue[]>): BeadsDiscovery {
-  return { search: async (query) => search(query) }
+  return {
+    search: async (query) => search(query),
+    resolve: async (ids) => {
+      const issues = await search("")
+      return issues.filter((issue) => ids.includes(issue.id))
+    },
+  }
 }
 
-function slot(disabled = false) {
+function slot(disabled = false): TuiHostSlotMap["session_prompt"] {
   return {
     session_id: "session-1",
     visible: true,
@@ -79,23 +172,30 @@ function slot(disabled = false) {
   }
 }
 
+function homeSlot(): TuiHostSlotMap["home_prompt"] {
+  return {}
+}
+
 test(
-  "replacement renders one visible editor and submits through hidden public bridge",
+  "native prompt stays visible and submits through its public ref",
   { skip: process.versions.bun ? false : "OpenTUI native smoke test requires Bun" },
   async () => {
     let customPrompt: TuiPromptRef | undefined
     let submitted = 0
-    const bridge = createApi(() => {
+    let slotSubmitted = 0
+    const native = createNativePromptApi(() => {
       submitted++
     })
-    const setup = await renderPrompt(bridge.api, {
+    const setup = await renderPrompt(native.api, {
       ...slot(),
-      on_submit: bridge.onBridgeSubmit,
+      on_submit: () => {
+        slotSubmitted++
+      },
       ref: (value) => (customPrompt = value),
     })
 
     await setup.flush()
-    assert.equal(bridge.bridgeVisible, false)
+    assert.equal(native.promptVisible, true)
     assert.equal((setup.captureCharFrame().match(/Ask anything\.\.\./g) ?? []).length, 1)
     await setup.mockInput.typeText("send")
     await setup.flush()
@@ -105,8 +205,9 @@ test(
     setup.mockInput.pressEnter()
     await setup.flush()
 
-    assert.equal(bridge.bridgePrompt?.input, "send")
-    assert.equal(bridge.bridgeSubmitCount, 1)
+    assert.equal(native.submittedPrompt?.input, "send")
+    assert.equal(native.submitCount, 1)
+    assert.equal(slotSubmitted, 1)
     assert.equal(submitted, 1)
     assert.equal(customPrompt?.current.input, "")
     setup.renderer.destroy()
@@ -114,30 +215,30 @@ test(
 )
 
 test(
-  "replacement blocks keyboard input while disabled",
+  "native prompt blocks keyboard input while disabled",
   { skip: process.versions.bun ? false : "OpenTUI native smoke test requires Bun" },
   async () => {
     let customPrompt: TuiPromptRef | undefined
-    const bridge = createApi(() => {})
-    const setup = await renderPrompt(bridge.api, { ...slot(true), ref: (value) => (customPrompt = value) })
+    const native = createNativePromptApi(() => {})
+    const setup = await renderPrompt(native.api, { ...slot(true), ref: (value) => (customPrompt = value) })
 
     await setup.flush()
     await setup.mockInput.typeText("blocked")
     await setup.flush()
 
     assert.equal(customPrompt?.current.input, "")
-    assert.equal(bridge.bridgeSubmitCount, 0)
+    assert.equal(native.submitCount, 0)
     setup.renderer.destroy()
   },
 )
 
 test(
-  "replacement blocks keyboard input while session is loading",
+  "native prompt blocks keyboard input while session is loading",
   { skip: process.versions.bun ? false : "OpenTUI native smoke test requires Bun" },
   async () => {
     let customPrompt: TuiPromptRef | undefined
-    const bridge = createApi(() => {}, "busy")
-    const setup = await renderPrompt(bridge.api, { ...slot(), ref: (value) => (customPrompt = value) })
+    const native = createNativePromptApi(() => {}, "busy")
+    const setup = await renderPrompt(native.api, { ...slot(), ref: (value) => (customPrompt = value) })
 
     await setup.flush()
     await setup.mockInput.typeText("blocked")
@@ -149,12 +250,12 @@ test(
 )
 
 test(
-  "replacement preserves multiline cursor editing and paste",
+  "native prompt preserves multiline cursor editing and paste",
   { skip: process.versions.bun ? false : "OpenTUI native smoke test requires Bun" },
   async () => {
     let customPrompt: TuiPromptRef | undefined
-    const bridge = createApi(() => {})
-    const setup = await renderPrompt(bridge.api, { ...slot(), ref: (value) => (customPrompt = value) })
+    const native = createNativePromptApi(() => {})
+    const setup = await renderPrompt(native.api, { ...slot(), ref: (value) => (customPrompt = value) })
 
     await setup.flush()
     await setup.mockInput.typeText("one")
@@ -174,11 +275,11 @@ test(
   { skip: process.versions.bun ? false : "OpenTUI native smoke test requires Bun" },
   async () => {
     let customPrompt: TuiPromptRef | undefined
-    const bridge = createApi(() => {})
+    const native = createNativePromptApi(() => {})
     const first: BeadsIssue = { id: "issue-one", title: "First issue", status: "open", priority: "P1" }
     const second: BeadsIssue = { id: "issue-two", title: "Second issue", status: "open", priority: 2 }
     const setup = await renderPrompt(
-      bridge.api,
+      native.api,
       { ...slot(), ref: (value) => (customPrompt = value) },
       theme,
       discoveryFor(() => [first, second]),
@@ -212,9 +313,9 @@ test(
   { skip: process.versions.bun ? false : "OpenTUI native smoke test requires Bun" },
   async () => {
     let customPrompt: TuiPromptRef | undefined
-    const bridge = createApi(() => {})
+    const native = createNativePromptApi(() => {})
     const setup = await renderPrompt(
-      bridge.api,
+      native.api,
       { ...slot(), ref: (value) => (customPrompt = value) },
       theme,
       discoveryFor(() => []),
@@ -235,16 +336,51 @@ test(
 )
 
 test(
+  "picker navigation keys stay native when picker is closed and are consumed when open",
+  { skip: process.versions.bun ? false : "OpenTUI native smoke test requires Bun" },
+  async () => {
+    let customPrompt: TuiPromptRef | undefined
+    const native = createNativePromptApi(() => {})
+    const issue: BeadsIssue = { id: "issue-one", title: "First issue", status: "open", priority: "P1" }
+    const setup = await renderPrompt(
+      native.api,
+      { ...homeSlot(), ref: (value) => (customPrompt = value) },
+      theme,
+      discoveryFor(() => [issue]),
+    )
+
+    await setup.flush()
+    await setup.mockInput.typeText("ab")
+    setup.mockInput.pressArrow("left")
+    await setup.mockInput.typeText("X")
+    await setup.flush()
+    assert.equal(customPrompt?.current.input, "aXb")
+
+    customPrompt?.reset()
+    await setup.flush()
+    await setup.mockInput.typeText("bd:")
+    await new Promise((resolve) => setTimeout(resolve, 180))
+    await setup.flush()
+    setup.mockInput.pressArrow("down")
+    await setup.mockInput.pressEnter()
+    await setup.flush()
+
+    assert.equal(customPrompt?.current.input, "bd:issue-one ")
+    setup.renderer.destroy()
+  },
+)
+
+test(
   "live picker browses bare references and selects with the mouse",
   { skip: process.versions.bun ? false : "OpenTUI native smoke test requires Bun" },
   async () => {
     let customPrompt: TuiPromptRef | undefined
     const queries: string[] = []
-    const bridge = createApi(() => {})
+    const native = createNativePromptApi(() => {})
     const first: BeadsIssue = { id: "issue-one", title: "First issue", status: "open", priority: "P1" }
     const second: BeadsIssue = { id: "issue-two", title: "Second issue", status: "open", priority: 2 }
     const setup = await renderPrompt(
-      bridge.api,
+      native.api,
       { ...slot(), ref: (value) => (customPrompt = value) },
       theme,
       discoveryFor((query) => {
@@ -258,8 +394,8 @@ test(
     await new Promise((resolve) => setTimeout(resolve, 180))
     await setup.flush()
 
-    assert.deepEqual(queries.at(-1), "")
-    await setup.mockMouse.click(5, 3)
+    assert.equal(queries[queries.length - 1], "")
+    await setup.mockMouse.click(5, 2)
     await setup.flush()
 
     assert.equal(customPrompt?.current.input, "Use bd:issue-two ")
@@ -268,16 +404,16 @@ test(
 )
 
 test(
-  "live picker keeps multiple references independent while cursor moves",
+  "live picker uses end-of-input reference through the public prompt ref",
   { skip: process.versions.bun ? false : "OpenTUI native smoke test requires Bun" },
   async () => {
     let customPrompt: TuiPromptRef | undefined
     const queries: string[] = []
-    const bridge = createApi(() => {})
+    const native = createNativePromptApi(() => {})
     const first: BeadsIssue = { id: "issue-one", title: "First issue", status: "open", priority: "P1" }
     const second: BeadsIssue = { id: "issue-two", title: "Second issue", status: "open", priority: 2 }
     const setup = await renderPrompt(
-      bridge.api,
+      native.api,
       { ...slot(), ref: (value) => (customPrompt = value) },
       theme,
       discoveryFor((query) => {
@@ -290,16 +426,11 @@ test(
     await setup.mockInput.typeText("bd:one and bd:two")
     await new Promise((resolve) => setTimeout(resolve, 180))
     await setup.flush()
-    assert.equal(queries.at(-1), "two")
-
-    for (let index = 0; index < 11; index++) setup.mockInput.pressArrow("left")
-    await new Promise((resolve) => setTimeout(resolve, 180))
-    await setup.flush()
-    assert.equal(queries.at(-1), "one")
+    assert.equal(queries[queries.length - 1], "two")
 
     setup.mockInput.pressEnter()
     await setup.flush()
-    assert.equal(customPrompt?.current.input, "bd:issue-one and bd:two")
+    assert.equal(customPrompt?.current.input, "bd:one and bd:issue-two ")
     setup.renderer.destroy()
   },
 )
@@ -309,10 +440,10 @@ test(
   { skip: process.versions.bun ? false : "OpenTUI native smoke test requires Bun" },
   async () => {
     let customPrompt: TuiPromptRef | undefined
-    const bridge = createApi(() => {})
+    const native = createNativePromptApi(() => {})
     const issue: BeadsIssue = { id: "issue-one", title: "First issue", status: "open", priority: "P1" }
     const setup = await renderPrompt(
-      bridge.api,
+      native.api,
       { ...slot(), ref: (value) => (customPrompt = value) },
       theme,
       discoveryFor(() => [issue]),
@@ -335,9 +466,9 @@ test(
   { skip: process.versions.bun ? false : "OpenTUI native smoke test requires Bun" },
   async () => {
     let customPrompt: TuiPromptRef | undefined
-    const bridge = createApi(() => {})
+    const native = createNativePromptApi(() => {})
     const setup = await renderPrompt(
-      bridge.api,
+      native.api,
       { ...slot(), ref: (value) => (customPrompt = value) },
       theme,
       discoveryFor(async () => {
@@ -351,10 +482,14 @@ test(
     await setup.flush()
 
     assert.match(setup.captureCharFrame(), /No matching items/)
+    setup.mockInput.pressArrow("left")
+    await setup.mockInput.typeText("X")
+    await setup.flush()
+    assert.equal(customPrompt?.current.input, "send bd:missinXg")
     setup.mockInput.pressEnter()
     await setup.flush()
 
-    assert.equal(bridge.bridgeSubmitCount, 1)
+    assert.equal(native.submitCount, 1)
     assert.equal(customPrompt?.current.input, "")
     setup.renderer.destroy()
   },
