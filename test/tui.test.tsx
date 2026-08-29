@@ -346,9 +346,9 @@ test(
     assert.equal(customPrompt?.current.input, "before bd:first after [Beads:issue-two] ")
     const selectedPart = customPrompt?.current.parts[0]
     assert.deepEqual(selectedPart?.type, "file")
-    assert.deepEqual(selectedPart?.mime, "text/markdown")
+    assert.deepEqual(selectedPart?.mime, "application/pdf")
     assert.deepEqual(selectedPart?.filename, "[Beads:issue-two]")
-    assert.match(selectedPart?.url ?? "", /^data:text\/markdown;base64,/u)
+    assert.match(selectedPart?.url ?? "", /^data:application\/pdf;base64,/u)
     assert.deepEqual(selectedPart?.source, {
       type: "file",
       path: "[Beads:issue-two]",

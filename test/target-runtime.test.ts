@@ -89,7 +89,8 @@ test(
             "test-model": {
               id: "test-model",
               name: "Smoke model",
-              attachment: false,
+              attachment: true,
+              modalities: { input: ["text", "pdf"] },
               reasoning: false,
               temperature: false,
               tool_call: false,
@@ -137,11 +138,13 @@ test(
       const persisted = await waitForCapturedPart(capturePath, issueID)
       assert.equal(persisted.type, "file")
       assert.equal(persisted.filename, `[Beads:${issueID}]`)
-      assert.equal(persisted.mime, "text/markdown")
+      assert.equal(persisted.mime, "application/pdf")
       assert.match(decodeDataUrl(String(persisted.url)), /Target runtime smoke issue/)
       assert.doesNotMatch(JSON.stringify(persisted), /invalid user part/i)
-      assert.match(JSON.stringify(provider.requests), /Target runtime smoke issue/)
-      assert.match(JSON.stringify(provider.requests), /Target runtime enriched description/)
+      const providerFile = JSON.stringify(provider.requests).match(/"file_data":"(data:application\/pdf;base64,[^"]+)"/u)?.[1]
+      assert.ok(providerFile)
+      assert.match(decodeDataUrl(providerFile), /Target runtime smoke issue/)
+      assert.match(decodeDataUrl(providerFile), /Target runtime enriched description/)
       assert.equal((await capturedRecords(capturePath)).some((record) => record.kind === "session-error"), false)
 
       stage = "post-submission typing"
@@ -332,7 +335,7 @@ function decodeDataUrl(url: string): string {
   if (separator === -1) return ""
   const body = url.slice(separator + 1)
   return url.slice(0, separator).includes(";base64")
-    ? Buffer.from(body, "base64").toString("utf8")
+    ? Buffer.from(body, "base64").toString("latin1")
     : decodeURIComponent(body)
 }
 

@@ -1,8 +1,8 @@
 import type { BeadsIssue } from "./discovery.js"
 
-// OpenCode excludes text/plain file parts before model conversion. Keep the
-// payload plain text while using a text MIME that remains a native attachment.
-export const beadsAttachmentMime = "text/markdown"
+// GitHub Copilot's OpenAI-compatible models accept PDF attachments, but reject
+// generic text file media types. Keep issue context in a small native PDF.
+export const beadsAttachmentMime = "application/pdf"
 
 export type BeadsTextReference = {
   id: string
@@ -42,7 +42,7 @@ export function formatBeadsAttachment(issue: BeadsIssue): string {
 }
 
 export function beadsAttachmentUrl(issue: BeadsIssue): string {
-  return `data:${beadsAttachmentMime};base64,${Buffer.from(formatBeadsAttachment(issue), "utf8").toString("base64")}`
+  return `data:${beadsAttachmentMime};base64,${createPdf(formatBeadsAttachment(issue)).toString("base64")}`
 }
 
 export function beadsAttachmentLabel(id: string): string {
@@ -77,4 +77,29 @@ function formatIssue(issue: BeadsIssue): string[] {
     )
   }
   return lines
+}
+
+function createPdf(text: string): Buffer {
+  const lines = text.split(/\r?\n/u).map((line) => line.replace(/[^\x20-\x7e]/gu, "?"))
+  const content = ["BT", "/F1 9 Tf", "50 760 Td", ...lines.flatMap((line, index) => [index === 0 ? `(${pdfText(line)}) Tj` : `0 -12 Td (${pdfText(line)}) Tj`]), "ET"].join("\n")
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+    `<< /Length ${Buffer.byteLength(content, "ascii")} >>\nstream\n${content}\nendstream`,
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+  ]
+  const chunks = ["%PDF-1.4\n"]
+  const offsets = [0]
+  for (let index = 0; index < objects.length; index++) {
+    offsets.push(Buffer.byteLength(chunks.join(""), "ascii"))
+    chunks.push(`${index + 1} 0 obj\n${objects[index]}\nendobj\n`)
+  }
+  const xrefOffset = Buffer.byteLength(chunks.join(""), "ascii")
+  chunks.push(`xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map((offset) => `${String(offset).padStart(10, "0")} 00000 n `).join("\n")}\ntrailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`)
+  return Buffer.from(chunks.join(""), "ascii")
+}
+
+function pdfText(value: string): string {
+  return value.replace(/[\\()]/gu, (character) => `\\${character}`)
 }
