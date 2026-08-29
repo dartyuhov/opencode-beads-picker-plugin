@@ -1,3 +1,4 @@
 {
-  "plugin": ["./dist/server.js"]
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": []
 }

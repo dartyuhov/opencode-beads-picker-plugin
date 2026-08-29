@@ -29,6 +29,7 @@ function createNativePromptApi(onSubmit: (prompt: TuiPromptInfo) => void, status
     key: Array<(ctx: { event: PromptKeyEvent; consume(): void }) => void>
     "key:after": Array<(ctx: { event: PromptKeyEvent }) => void>
   } = { key: [], "key:after": [] }
+  const statusListeners: Array<(event: { properties: { sessionID: string; status: { type: "idle" | "busy" } } }) => void> = []
 
   const Prompt = (props: TuiPromptProps) => {
     promptVisible = props.visible
@@ -120,7 +121,16 @@ function createNativePromptApi(onSubmit: (prompt: TuiPromptInfo) => void, status
 
   const api = {
     state: { path: { directory: "/repo", worktree: "/repo" }, session: { status: () => ({ type: status }) } },
-    event: { on: () => () => {} },
+    event: {
+      on(name: string, listener: (event: unknown) => void) {
+        if (name !== "session.status") return () => {}
+        statusListeners.push(listener as never)
+        return () => {
+          const index = statusListeners.indexOf(listener as never)
+          if (index >= 0) statusListeners.splice(index, 1)
+        }
+      },
+    },
     keymap: {
       intercept(name: "key" | "key:after", handler: (ctx: never) => void) {
         interceptors[name].push(handler as never)
@@ -143,6 +153,9 @@ function createNativePromptApi(onSubmit: (prompt: TuiPromptInfo) => void, status
     },
     get promptVisible() {
       return promptVisible
+    },
+    emitSessionStatus(sessionID: string, nextStatus: "idle" | "busy") {
+      for (const listener of statusListeners) listener({ properties: { sessionID, status: { type: nextStatus } } })
     },
   }
 }
@@ -215,6 +228,33 @@ test(
 )
 
 test(
+  "native prompt accepts typing after a submitted conversation returns idle",
+  { skip: process.versions.bun ? false : "OpenTUI native smoke test requires Bun" },
+  async () => {
+    let customPrompt: TuiPromptRef | undefined
+    const native = createNativePromptApi(() => {})
+    const setup = await renderPrompt(native.api, {
+      ...slot(),
+      on_submit: () => {},
+      ref: (value) => (customPrompt = value),
+    })
+
+    await setup.flush()
+    await setup.mockInput.typeText("first")
+    setup.mockInput.pressEnter()
+    await setup.flush()
+    native.emitSessionStatus("session-1", "busy")
+    native.emitSessionStatus("session-1", "idle")
+    await setup.flush()
+    await setup.mockInput.typeText("second")
+    await setup.flush()
+
+    assert.equal(customPrompt?.current.input, "second")
+    setup.renderer.destroy()
+  },
+)
+
+test(
   "native prompt blocks keyboard input while disabled",
   { skip: process.versions.bun ? false : "OpenTUI native smoke test requires Bun" },
   async () => {
@@ -233,7 +273,7 @@ test(
 )
 
 test(
-  "native prompt blocks keyboard input while session is loading",
+  "native prompt accepts keyboard input while session is loading",
   { skip: process.versions.bun ? false : "OpenTUI native smoke test requires Bun" },
   async () => {
     let customPrompt: TuiPromptRef | undefined
@@ -244,7 +284,7 @@ test(
     await setup.mockInput.typeText("blocked")
     await setup.flush()
 
-    assert.equal(customPrompt?.current.input, "")
+    assert.equal(customPrompt?.current.input, "blocked")
     setup.renderer.destroy()
   },
 )
@@ -296,14 +336,57 @@ test(
     assert.match(frame, /open/)
     assert.match(frame, /P1/)
     assert.match(frame, /issue-two/)
+    assert.ok(frame.indexOf("issue-one") < frame.indexOf("before bd:first after bd:"))
 
     setup.mockInput.pressArrow("down")
     await setup.flush()
     setup.mockInput.pressEnter()
     await setup.flush()
 
-    assert.equal(customPrompt?.current.input, "before bd:first after bd:issue-two ")
+    assert.equal(customPrompt?.current.input, "before bd:first after [Beads:issue-two] ")
+    const selectedPart = customPrompt?.current.parts[0]
+    assert.deepEqual(selectedPart?.type, "file")
+    assert.deepEqual(selectedPart?.mime, "text/markdown")
+    assert.deepEqual(selectedPart?.filename, "[Beads:issue-two]")
+    assert.match(selectedPart?.url ?? "", /^data:text\/plain;base64,/u)
+    assert.deepEqual(selectedPart?.source, {
+      type: "file",
+      path: "[Beads:issue-two]",
+      text: { start: 22, end: 39, value: "[Beads:issue-two]" },
+    })
+    assert.match(Buffer.from((selectedPart?.url ?? "").slice((selectedPart?.url ?? "").indexOf(",") + 1), "base64").toString("utf8"), /title: Second issue/)
+    const tokenSpan = setup.captureSpans().lines
+      .flatMap((line) => line.spans)
+      .find((span) => span.text.includes("[Beads:issue-two]"))
+    assert.ok(tokenSpan)
+    assert.notDeepEqual(tokenSpan.bg, theme.current.backgroundElement)
     assert.doesNotMatch(setup.captureCharFrame(), /Second issue/)
+    setup.renderer.destroy()
+  },
+)
+
+test(
+  "live picker searches immediately after typing the bd prefix",
+  { skip: process.versions.bun ? false : "OpenTUI native smoke test requires Bun" },
+  async () => {
+    const queries: string[] = []
+    const native = createNativePromptApi(() => {})
+    const setup = await renderPrompt(native.api, { ...slot() }, theme, discoveryFor((query) => {
+      queries.push(query)
+      return [{ id: "issue-one", title: "First issue", status: "open", priority: "P1" }]
+    }))
+
+    await setup.flush()
+    await setup.mockInput.typeText("b")
+    await setup.flush()
+    await setup.mockInput.typeText("d")
+    await setup.flush()
+    await setup.mockInput.typeText(":")
+    await new Promise((resolve) => setTimeout(resolve, 180))
+    await setup.flush()
+
+    assert.equal(queries[queries.length - 1], "")
+    assert.match(setup.captureCharFrame(), /issue-one/)
     setup.renderer.destroy()
   },
 )
@@ -365,7 +448,7 @@ test(
     await setup.mockInput.pressEnter()
     await setup.flush()
 
-    assert.equal(customPrompt?.current.input, "bd:issue-one ")
+    assert.equal(customPrompt?.current.input, "[Beads:issue-one] ")
     setup.renderer.destroy()
   },
 )
@@ -395,10 +478,10 @@ test(
     await setup.flush()
 
     assert.equal(queries[queries.length - 1], "")
-    await setup.mockMouse.click(5, 2)
+    await setup.mockMouse.click(5, 1)
     await setup.flush()
 
-    assert.equal(customPrompt?.current.input, "Use bd:issue-two ")
+    assert.equal(customPrompt?.current.input, "Use [Beads:issue-two] ")
     setup.renderer.destroy()
   },
 )
@@ -430,7 +513,7 @@ test(
 
     setup.mockInput.pressEnter()
     await setup.flush()
-    assert.equal(customPrompt?.current.input, "bd:one and bd:issue-two ")
+    assert.equal(customPrompt?.current.input, "bd:one and [Beads:issue-two] ")
     setup.renderer.destroy()
   },
 )
@@ -456,7 +539,7 @@ test(
     setup.mockInput.pressTab()
     await setup.flush()
 
-    assert.equal(customPrompt?.current.input, "Use bd:issue-one ")
+    assert.equal(customPrompt?.current.input, "Use [Beads:issue-one] ")
     setup.renderer.destroy()
   },
 )

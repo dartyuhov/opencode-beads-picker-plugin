@@ -1,5 +1,6 @@
 import { createEditorState, editorReference, reduceEditor, type EditorAction, type EditorState } from "./editor.js"
 import type { BeadsDiscovery, BeadsIssue } from "./discovery.js"
+import type { BeadsReference } from "./references.js"
 
 export type PickerState = {
   open: boolean
@@ -16,6 +17,7 @@ export type PickerAction =
 export type PickerOptions = {
   discovery: BeadsDiscovery
   debounceMs?: number
+  onSelect?: (selection: { issue: BeadsIssue; reference: BeadsReference }) => void
 }
 
 export type PickerController = {
@@ -25,7 +27,7 @@ export type PickerController = {
   interact(action: PickerAction): void
   subscribe(listener: () => void): () => void
   close(): void
-  select(index?: number): void
+  select(index?: number): BeadsIssue | undefined
   dispose(): void
 }
 
@@ -124,11 +126,14 @@ export function createPickerController(initialText: string, options: PickerOptio
       setState({ ...state, open: false, loading: false })
     },
     select(index = state.selected) {
+      const reference = editorReference(editor)
       const issue = state.results[index]
-      if (!issue) return
+      if (!issue || !reference) return
       editor = reduceEditor(editor, { type: "select", id: issue.id })
+      options.onSelect?.({ issue, reference })
       cancelScheduledSearch()
       setState({ ...state, open: false, loading: false, selected: 0 })
+      return issue
     },
     dispose() {
       disposed = true

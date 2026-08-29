@@ -44,9 +44,13 @@ export function allReferences(text: string): BeadsReference[] {
   return references
 }
 
+export function beadsDisplay(id: string) {
+  return `[Beads:${id}]`
+}
+
 /** Replace only active reference and add one continuation space when needed. */
 export function replaceReference(text: string, reference: BeadsReference, id: string) {
-  const replacement = `bd:${id}`
+  const replacement = beadsDisplay(id)
   const needsSpace = reference.end >= text.length || !isWhitespace(text[reference.end] ?? "")
   const inserted = needsSpace ? `${replacement} ` : replacement
   const nextText = text.slice(0, reference.start) + inserted + text.slice(reference.end)

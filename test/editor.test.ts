@@ -13,9 +13,9 @@ test("finds references under the cursor and stops at whitespace", () => {
   ])
 })
 
-test("selection replaces only the active reference and adds one space", () => {
+test("selection replaces only the active reference with a Beads token", () => {
   const result = replaceReference("before bd:query after", { start: 7, end: 15, query: "query" }, "issue-1")
-  assert.deepEqual(result, { text: "before bd:issue-1 after", cursor: 17 })
+  assert.deepEqual(result, { text: "before [Beads:issue-1] after", cursor: 22 })
 })
 
 test("editor preserves multiline editing, cursor movement, and paste", () => {

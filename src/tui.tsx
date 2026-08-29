@@ -3,12 +3,13 @@ import type {
   TuiPluginApi,
   TuiPluginModule,
   TuiHostSlotMap,
+  TuiPromptInfo,
   TuiPromptRef,
   TuiTheme,
 } from "@opencode-ai/plugin/tui"
 import type { BoxRenderable, TextRenderable } from "@opentui/core"
 import { createEffect, createSignal, onCleanup } from "solid-js/dist/solid.js"
-import { createBeadsDiscovery, createEditorState, createPickerController, reduceEditor, type BeadsDiscovery, type EditorAction, type EditorState, type PickerController } from "./shared/index.js"
+import { beadsAttachmentMime, beadsAttachmentUrl, beadsDisplay, createBeadsDiscovery, createEditorState, createPickerController, reduceEditor, type BeadsDiscovery, type BeadsIssue, type EditorAction, type EditorState, type PickerController } from "./shared/index.js"
 
 export type PromptReplacement = {
   slot: "session_prompt" | "home_prompt"
@@ -43,17 +44,24 @@ type PromptEditorProps = {
 
 export function PromptEditor(props: PromptEditorProps) {
   let prompt: TuiPromptRef | undefined
-  const [busy, setBusy] = createSignal(false)
+  const selectedBeads = new Set<string>()
+  const selectedIssues = new Map<string, BeadsIssue>()
   const sessionID = "session_id" in props.slot ? props.slot.session_id : undefined
   const discovery = props.discovery ?? createBeadsDiscovery({
     directory: props.api.state.path.directory,
     worktree: props.api.state.path.worktree,
   })
-  const picker = createPickerController("", { discovery })
+  const picker = createPickerController("", {
+    discovery,
+    onSelect: ({ issue }) => {
+      selectedBeads.add(issue.id)
+      selectedIssues.set(issue.id, issue)
+    },
+  })
   const [pickerVersion, setPickerVersion] = createSignal(0)
   const visible = () => !(("visible" in props.slot) && props.slot.visible === false)
   const disabled = () => "disabled" in props.slot && Boolean(props.slot.disabled)
-  const blocked = () => disabled() || busy()
+  const blocked = () => disabled()
   const pickerState = () => {
     pickerVersion()
     return picker.state
@@ -62,17 +70,8 @@ export function PromptEditor(props: PromptEditorProps) {
   const pickerLoading = () => pickerState().loading
   const pickerResults = () => pickerState().results
 
-  const status = sessionID ? props.api.state.session.status(sessionID) : undefined
-  setBusy(status?.type !== undefined && status.type !== "idle")
-
-  const unlisten = props.api.event.on("session.status", (event) => {
-    if (!sessionID || event.properties.sessionID !== sessionID) return
-    setBusy(event.properties.status.type !== "idle")
-  })
-  onCleanup(unlisten)
   onCleanup(picker.subscribe(() => {
     setPickerVersion((version) => version + 1)
-    syncPromptFromPicker()
   }))
   onCleanup(() => picker.dispose())
 
@@ -95,15 +94,98 @@ export function PromptEditor(props: PromptEditorProps) {
 
   function syncPrompt() {
     if (!prompt) return
-    const input = prompt.current.input
-    if (picker.editor.text === input && picker.editor.cursor === input.length) return
-    picker.dispatch({ type: "set-text", text: input, cursor: input.length })
+    const current = prompt.current
+    rememberSelectedBeads(current.parts)
+    const input = current.input
+    pruneSelectedBeads(input)
+    const cursor = promptCursor(input)
+    if (picker.editor.text === input && picker.editor.cursor === cursor) return
+    picker.dispatch({ type: "set-text", text: input, cursor })
   }
 
-  function syncPromptFromPicker() {
+  function applyPickerSelection() {
     if (!prompt || prompt.current.input === picker.editor.text) return
     const current = prompt.current
-    prompt.set({ ...current, input: picker.editor.text })
+    prompt.set({
+      ...current,
+      input: picker.editor.text,
+      parts: promptParts(picker.editor.text, current.parts),
+    })
+  }
+
+  function promptCursor(input: string) {
+    const editor = props.api.renderer?.currentFocusedEditor
+    if (!editor || editor.isDestroyed) return input.length
+    return Math.max(0, Math.min(editor.cursorOffset, input.length))
+  }
+
+  function pruneSelectedBeads(input: string) {
+    for (const id of selectedBeads) {
+      if (input.includes(beadsDisplay(id))) continue
+      selectedBeads.delete(id)
+      selectedIssues.delete(id)
+    }
+  }
+
+  function rememberSelectedBeads(parts: TuiPromptInfo["parts"]) {
+    for (const part of parts) {
+      if (part.type !== "file" || !part.source?.text) continue
+      const id = beadsID(part.source.text.value)
+      if (id) selectedBeads.add(id)
+    }
+  }
+
+  function promptParts(input: string, current: TuiPromptInfo["parts"]): TuiPromptInfo["parts"] {
+    const existing = new Map<string, Extract<TuiPromptInfo["parts"][number], { type: "file" }>>()
+    const parts = current.filter((part) => {
+      if (part.type === "file" && part.source?.text) {
+        const id = beadsID(part.source.text.value)
+        if (id) {
+          existing.set(id, part)
+          return false
+        }
+      }
+      if (part.type !== "text" || !part.source?.text) return true
+      return !beadsID(part.source.text.value)
+    })
+    const beads: TuiPromptInfo["parts"] = []
+    const pattern = /\[Beads:([^\]\s]+)\]/gu
+    const seen = new Set<string>()
+    let match: RegExpExecArray | null
+    while ((match = pattern.exec(input))) {
+      const id = match[1]
+      if (!id || !selectedBeads.has(id) || seen.has(id)) continue
+      seen.add(id)
+      const value = match[0]
+      const start = match.index
+      const end = start + value.length
+      const issue = selectedIssues.get(id)
+      const previous = existing.get(id)
+      if (issue) {
+        beads.push({
+          type: "file",
+          mime: beadsAttachmentMime,
+          filename: value,
+          url: beadsAttachmentUrl(issue),
+          source: {
+            type: "file",
+            path: value,
+            text: { start, end, value },
+          },
+        })
+      } else if (previous) {
+        beads.push({
+          ...previous,
+          source: previous.source ? { ...previous.source, text: { ...previous.source.text, start, end, value } } : undefined,
+        })
+      }
+    }
+    return [...parts, ...beads]
+  }
+
+  function beadsID(value: string | undefined): string | undefined {
+    const match = value ? /^\[Beads:([^\]\s]+)\]$/u.exec(value) : undefined
+    return match?.[1]
   }
 
   function pickerKey(name: string): "ArrowUp" | "ArrowDown" | "Enter" | "Tab" | "Escape" | undefined {
@@ -138,8 +220,9 @@ export function PromptEditor(props: PromptEditorProps) {
       if ((key === "Enter" || key === "Tab") && (pickerLoading() || pickerResults().length === 0)) return
       ctx.consume()
       picker.interact({ type: "key", key })
+      if (key === "Enter" || key === "Tab") applyPickerSelection()
     },
-    { priority: 10_000 },
+    { priority: 20_000 },
   )
   onCleanup(removeKeyIntercept)
 
@@ -147,7 +230,7 @@ export function PromptEditor(props: PromptEditorProps) {
     "key:after",
     (ctx) => {
       if (ctx.event.eventType === "release" || !prompt?.focused) return
-      queueMicrotask(syncPrompt)
+      setTimeout(syncPrompt, 0)
     },
     { priority: -10_000 },
   )
@@ -171,6 +254,7 @@ export function PromptEditor(props: PromptEditorProps) {
 
   return (
     <>
+      <PickerView picker={picker} version={pickerVersion} colors={colors} blocked={blocked} onSelect={applyPickerSelection} />
       <Prompt
         sessionID={sessionID}
         visible={visible()}
@@ -187,7 +271,6 @@ export function PromptEditor(props: PromptEditorProps) {
           }
         }}
       />
-      <PickerView picker={picker} version={pickerVersion} colors={colors} blocked={blocked} />
     </>
   )
 }
@@ -197,6 +280,7 @@ type PickerViewProps = {
   version: () => number
   colors: TuiTheme["current"]
   blocked: () => boolean
+  onSelect(): void
 }
 
 function PickerView(props: PickerViewProps) {
@@ -262,6 +346,7 @@ function PickerView(props: PickerViewProps) {
           version={props.version}
           colors={props.colors}
           blocked={props.blocked}
+          onSelect={props.onSelect}
         />
       ))}
     </box>
@@ -274,6 +359,7 @@ type PickerRowProps = {
   version: () => number
   colors: TuiTheme["current"]
   blocked: () => boolean
+  onSelect(): void
 }
 
 function PickerRow(props: PickerRowProps) {
@@ -313,6 +399,7 @@ function PickerRow(props: PickerRowProps) {
         if (event.button !== 0 || props.blocked()) return
         event.preventDefault()
         props.picker.interact({ type: "mouse-select", index: props.index })
+        props.onSelect()
       }}
     >
       <text
@@ -329,8 +416,6 @@ function PickerRow(props: PickerRowProps) {
 }
 
 export const tui: TuiPlugin = async (api) => {
-  if (api.plugins?.list?.().some((plugin) => plugin.source !== "internal" && plugin.enabled && plugin.id !== "opencode-beads-plugin")) return
-
   api.slots.register({
     slots: {
       session_prompt(ctx, props) {

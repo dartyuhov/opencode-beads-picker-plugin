@@ -9,14 +9,17 @@ const issues: BeadsIssue[] = [
 ]
 
 function discoveryFor(search: (query: string) => BeadsIssue[] | Promise<BeadsIssue[]>): BeadsDiscovery {
-  return { search: async (query) => search(query) }
+  return {
+    search: async (query) => search(query),
+    resolve: async () => [],
+  }
 }
 
 function wait(milliseconds: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, milliseconds))
 }
 
-test("debounces live search and selects the active reference with trailing space", async () => {
+test("shows results for an empty bd query and selects the active reference as a Beads token", async () => {
   let calls = 0
   const picker = createPickerController("bd:", {
     discovery: discoveryFor(async () => {
@@ -34,7 +37,7 @@ test("debounces live search and selects the active reference with trailing space
 
   picker.interact({ type: "key", key: "ArrowDown" })
   picker.interact({ type: "key", key: "Tab" })
-  assert.equal(picker.editor.text, "bd:issue-two ")
+  assert.equal(picker.editor.text, "[Beads:issue-two] ")
   assert.equal(picker.state.open, false)
   picker.dispose()
 })
@@ -70,6 +73,6 @@ test("ignores stale responses and replaces only the reference under cursor", asy
 
   assert.deepEqual(picker.state.results, [issues[1]])
   picker.select()
-  assert.equal(picker.editor.text, "before bd:first after bd:issue-two ")
+  assert.equal(picker.editor.text, "before bd:first after [Beads:issue-two] ")
   picker.dispose()
 })

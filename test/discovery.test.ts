@@ -98,6 +98,60 @@ test("preserves numeric priorities from Beads records", async () => {
   }])
 })
 
+test("loads enriched issue details through bd show", async () => {
+  let requested: BeadsProcessRequest | undefined
+  const discovery = createBeadsDiscovery({
+    directory: "/repo",
+    runner: async (request) => {
+      requested = request
+      return {
+        exitCode: 0,
+        stdout: JSON.stringify([{
+          id: "issue-1",
+          title: "Example issue",
+          status: "open",
+          priority: 2,
+          issue_type: "task",
+          owner: "owner@example.com",
+          description: "Detailed description",
+          comments: [{ author: "reviewer", body: "Needs follow-up" }],
+        }]),
+      }
+    },
+  })
+
+  assert.deepEqual(await discovery.resolveDetails?.(["issue-1"]), [{
+    id: "issue-1",
+    title: "Example issue",
+    status: "open",
+    priority: 2,
+    issueType: "task",
+    owner: "owner@example.com",
+    description: "Detailed description",
+    comments: [{ author: "reviewer", body: "Needs follow-up" }],
+  }])
+  assert.deepEqual(requested?.args, ["show", "issue-1", "--json", "--long", "--include-comments"])
+})
+
+test("maps Beads assignees to attachment owners", async () => {
+  const discovery = discoveryFor([issue()], {
+    runner: async ({ args }) => ({
+      exitCode: 0,
+      stdout: JSON.stringify(args[0] === "show" ? [{ ...issue(), assignee: "assigned@example.com" }] : [issue()]),
+    }),
+  })
+
+  assert.deepEqual(await discovery.resolveDetails?.(["issue-1"]), [{
+    id: "issue-1",
+    title: "Example issue",
+    status: "open",
+    priority: "P2",
+    createdAt: "2026-08-26T11:00:00.000Z",
+    updatedAt: "2026-08-26T11:30:00.000Z",
+    owner: "assigned@example.com",
+  }])
+})
+
 test("rejects records without required values or usable timestamps", async () => {
   const records = [
     issue({ id: "" }),
@@ -152,6 +206,15 @@ test("ranks exact, prefix, substring, and subsequence matches by relevance", asy
   ])
 })
 
+test("ranks an exact token above multiple weaker token matches", async () => {
+  const records = [
+    issue({ id: "exact", title: "cat aXbXc" }),
+    issue({ id: "prefixes", title: "catapult abcdef" }),
+  ]
+
+  assert.deepEqual((await discoveryFor(records).search("cat abc")).map(({ id }) => id), ["exact", "prefixes"])
+})
+
 test("requires every punctuation-separated query token to match ID or title", async () => {
   const records = [
     issue({ id: "matching", title: "Build parser", description: "hidden" }),
@@ -191,7 +254,7 @@ test("limits fetched records to 1000 and returned matches to five", async () => 
 
   const result = await discovery.search("match")
   assert.equal(result.length, 5)
-  assert.equal(result.at(-1)?.id, "issue-0004")
+  assert.equal(result[result.length - 1]?.id, "issue-0004")
   assert.equal(requested?.args[3], "1000")
 })
 
@@ -224,6 +287,40 @@ test("returns no results for process failures without exposing stderr", async ()
   assert.deepEqual(output, [])
 })
 
+test("classifies discovery failures without retaining process details", async () => {
+  const failures: Array<{
+    runner: NonNullable<Parameters<typeof createBeadsDiscovery>[0]["runner"]>
+    expected: string
+  }> = [
+    { runner: async () => ({ exitCode: 1, stdout: "" }), expected: "nonzero-exit" },
+    { runner: () => new Promise<never>(() => {}), expected: "timeout" },
+    { runner: async () => ({ exitCode: 0, stdout: "not json" }), expected: "malformed-json" },
+    { runner: async () => ({ exitCode: 0, stdout: JSON.stringify({ records: [] }) }), expected: "unexpected-response" },
+  ]
+
+  for (const { runner, expected } of failures) {
+    const discovery = discoveryFor([issue()], { runner })
+    assert.deepEqual(await discovery.search(""), [])
+    assert.equal(discovery.lastFailure, expected)
+  }
+})
+
+test("classifies missing executables and invalid working directories", async () => {
+  const missingExecutable = createBeadsDiscovery({
+    directory: process.cwd(),
+    env: { PATH: "/definitely-missing" },
+  })
+  assert.deepEqual(await missingExecutable.search(""), [])
+  assert.equal(missingExecutable.lastFailure, "missing-executable")
+
+  const invalidWorkingDirectory = createBeadsDiscovery({
+    directory: process.cwd(),
+    worktree: "/definitely-missing",
+  })
+  assert.deepEqual(await invalidWorkingDirectory.search(""), [])
+  assert.equal(invalidWorkingDirectory.lastFailure, "invalid-working-directory")
+})
+
 test("returns no results when the process runner exceeds the timeout", async () => {
   const discovery = discoveryFor([issue()], {
     runner: () => new Promise(() => {}),
@@ -252,4 +349,18 @@ test("uses the directory when no worktree is available and preserves inherited e
   await discovery.search("")
   assert.equal(requested?.cwd, "/repo")
   assert.deepEqual(requested?.env, { BEADS_DIR: "/external/beads", PATH: "/usr/bin" })
+})
+
+test("uses the OpenCode directory when its no-worktree sentinel is provided", async () => {
+  let requested: BeadsProcessRequest | undefined
+  const discovery = discoveryFor([issue()], {
+    worktree: "/",
+    runner: async (request) => {
+      requested = request
+      return { exitCode: 0, stdout: JSON.stringify([issue()]) }
+    },
+  })
+
+  await discovery.search("")
+  assert.equal(requested?.cwd, "/repo")
 })
