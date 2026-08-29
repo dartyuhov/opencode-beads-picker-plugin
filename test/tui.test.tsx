@@ -348,7 +348,7 @@ test(
     assert.deepEqual(selectedPart?.type, "file")
     assert.deepEqual(selectedPart?.mime, "text/markdown")
     assert.deepEqual(selectedPart?.filename, "[Beads:issue-two]")
-    assert.match(selectedPart?.url ?? "", /^data:text\/plain;base64,/u)
+    assert.match(selectedPart?.url ?? "", /^data:text\/markdown;base64,/u)
     assert.deepEqual(selectedPart?.source, {
       type: "file",
       path: "[Beads:issue-two]",

@@ -76,7 +76,7 @@ submission. Do not claim, update, close, or otherwise mutate Beads issues.
 - Keep separate TUI and server plugin targets.
 - Keep the existing cursor-aware picker and native OpenCode prompt replacement.
 - Change selected Beads references from text-only prompt parts to OpenCode-supported file attachment parts.
-- Use a text attachment with a `data:text/plain` URL containing a structured, read-only Beads issue representation.
+- Use a text attachment with a `data:text/markdown` URL containing a structured, read-only Beads issue representation; OpenCode rejects `data:text/plain` file parts.
 - Use a concise stable virtual label such as `[Beads:<issue-id>]` for the visible prompt attachment marker.
 - Store attachment source ranges so native prompt rendering can style the label and preserve editing behavior.
 - Preserve the normal prompt text separately from attachment parts during submission.

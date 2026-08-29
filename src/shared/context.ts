@@ -42,7 +42,7 @@ export function formatBeadsAttachment(issue: BeadsIssue): string {
 }
 
 export function beadsAttachmentUrl(issue: BeadsIssue): string {
-  return `data:text/plain;base64,${Buffer.from(formatBeadsAttachment(issue), "utf8").toString("base64")}`
+  return `data:${beadsAttachmentMime};base64,${Buffer.from(formatBeadsAttachment(issue), "utf8").toString("base64")}`
 }
 
 export function beadsAttachmentLabel(id: string): string {

@@ -66,7 +66,7 @@ test("creates native Beads file attachments with structured detail payloads", as
   const attachments = fileParts(output)
   assert.deepEqual(attachments.map((part) => part.filename), ["[Beads:opencode-beads-plugin-on0.2]", "[Beads:opencode-beads-plugin-on0.4]"])
   assert.deepEqual(attachments.map((part) => part.mime), ["text/markdown", "text/markdown"])
-  assert.ok(attachments.every((part) => part.url.startsWith("data:text/plain;base64,")))
+   assert.ok(attachments.every((part) => part.url.startsWith("data:text/markdown;base64,")))
   assert.equal(attachments[0]?.source?.text?.value, "bd:opencode-beads-plugin-on0.2")
   assert.equal(attachments[1]?.source?.text?.value, "bd:opencode-beads-plugin-on0.4")
   assert.match(attachmentText(attachments[1]!.url), /title: Inject submitted Beads context/)
