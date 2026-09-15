@@ -150,22 +150,6 @@ npm pack --dry-run --json
 npm publish --dry-run
 ```
 
-## Releases
-
-The `main` branch workflow verifies the package and publishes a new version
-through npm Trusted Publishing. Configure the npm trusted publisher with these
-values before pushing the first release:
-
-- npm package: `opencode-beads-picker-plugin`.
-- GitHub user: `dartyuhov`.
-- Repository: `opencode-beads-picker-plugin`.
-- Workflow filename: `publish.yml`.
-- Allowed action: `npm publish`.
-
-The workflow uses GitHub Actions OIDC and does not require an npm token secret.
-Increment `version` in `package.json` before each release. The workflow skips a
-version that already exists on npm. Do not run `npm publish` locally.
-
 ## License
 
 MIT
