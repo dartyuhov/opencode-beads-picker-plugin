@@ -29,7 +29,7 @@ files when you want both targets enabled:
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["opencode-beads-picker-plugin@0.1.0"]
+  "plugin": ["opencode-beads-picker-plugin@0.1.1"]
 }
 ```
 
@@ -38,7 +38,7 @@ files when you want both targets enabled:
 ```json
 {
   "$schema": "https://opencode.ai/tui.json",
-  "plugin": ["opencode-beads-picker-plugin@0.1.0"]
+  "plugin": ["opencode-beads-picker-plugin@0.1.1"]
 }
 ```
 
