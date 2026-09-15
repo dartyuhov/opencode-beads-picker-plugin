@@ -1,6 +1,6 @@
-# OpenCode Beads plugin
+# OpenCode Beads picker plugin
 
-`opencode-beads-plugin` adds a live `bd:` Beads issue picker to the OpenCode
+`opencode-beads-picker-plugin` adds a live `bd:` Beads issue picker to the OpenCode
 TUI and attaches enriched, read-only issue details to submitted model context.
 It is community-maintained and is not affiliated with or endorsed by OpenCode.
 
@@ -11,7 +11,7 @@ The package targets OpenCode `>=1.18.23 <2.0.0` and uses public plugin APIs.
 Install the published package with OpenCode's plugin command:
 
 ```sh
-opencode plugin opencode-beads-plugin
+opencode plugin opencode-beads-picker-plugin
 ```
 
 OpenCode detects the package's server and TUI entrypoints and updates the
@@ -26,7 +26,7 @@ files when you want both targets enabled:
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["opencode-beads-plugin@0.1.0"]
+  "plugin": ["opencode-beads-picker-plugin@0.1.0"]
 }
 ```
 
@@ -35,7 +35,7 @@ files when you want both targets enabled:
 ```json
 {
   "$schema": "https://opencode.ai/tui.json",
-  "plugin": ["opencode-beads-plugin@0.1.0"]
+  "plugin": ["opencode-beads-picker-plugin@0.1.0"]
 }
 ```
 
@@ -93,7 +93,7 @@ two configuration files:
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["/absolute/path/to/opencode-beads-plugin/dist/server.js"]
+  "plugin": ["/absolute/path/to/opencode-beads-picker-plugin/dist/server.js"]
 }
 ```
 
@@ -102,7 +102,7 @@ two configuration files:
 ```json
 {
   "$schema": "https://opencode.ai/tui.json",
-  "plugin": ["/absolute/path/to/opencode-beads-plugin/dist/tui.js"]
+  "plugin": ["/absolute/path/to/opencode-beads-picker-plugin/dist/tui.js"]
 }
 ```
 
@@ -153,9 +153,9 @@ The `main` branch workflow verifies the package and publishes a new version
 through npm Trusted Publishing. Configure the npm trusted publisher with these
 values before pushing the first release:
 
-- npm package: `opencode-beads-plugin`.
+- npm package: `opencode-beads-picker-plugin`.
 - GitHub user: `dartyuhov`.
-- Repository: `opencode-beads-plugin`.
+- Repository: `opencode-beads-picker-plugin`.
 - Workflow filename: `publish.yml`.
 - Allowed action: `npm publish`.
 

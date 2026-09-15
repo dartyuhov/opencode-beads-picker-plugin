@@ -1,5 +1,5 @@
 {
-  "name": "opencode-beads-plugin",
+  "name": "opencode-beads-picker-plugin",
   "version": "0.1.0",
   "description": "OpenCode plugin that adds a live Beads issue picker and enriched issue context.",
   "type": "module",
@@ -68,12 +68,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dartyuhov/opencode-beads-plugin.git"
+    "url": "git+https://github.com/dartyuhov/opencode-beads-picker-plugin.git"
   },
   "bugs": {
-    "url": "https://github.com/dartyuhov/opencode-beads-plugin/issues"
+    "url": "https://github.com/dartyuhov/opencode-beads-picker-plugin/issues"
   },
-  "homepage": "https://github.com/dartyuhov/opencode-beads-plugin#readme",
+  "homepage": "https://github.com/dartyuhov/opencode-beads-picker-plugin#readme",
   "publishConfig": {
     "access": "public"
   }

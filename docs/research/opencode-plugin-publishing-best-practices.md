@@ -1,7 +1,7 @@
 # OpenCode plugin publishing best practices
 
 This note records the publishing guidance used for
-`opencode-beads-plugin`. It reflects the official OpenCode and npm
+`opencode-beads-picker-plugin`. It reflects the official OpenCode and npm
 documentation and the OpenCode plugin loader source available on September 15,
 2026.
 
@@ -111,9 +111,9 @@ This repository follows the guidance above in these ways:
 
 Complete these steps for the first public release:
 
-1. Create the public GitHub repository `dartyuhov/opencode-beads-plugin`.
+1. Create the public GitHub repository `dartyuhov/opencode-beads-picker-plugin`.
 2. Configure npm Trusted Publishing for `publish.yml`.
 3. Push the repository's `main` branch and confirm CI passes.
 4. Increment `version` for each subsequent release.
 5. Push the release commit and confirm the package appears on npm.
-6. Test installation with `opencode plugin opencode-beads-plugin@<version>`.
+6. Test installation with `opencode plugin opencode-beads-picker-plugin@<version>`.

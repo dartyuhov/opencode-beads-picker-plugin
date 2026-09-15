@@ -429,7 +429,7 @@ export const tui: TuiPlugin = async (api) => {
 }
 
 export const tuiPlugin: TuiPluginModule = {
-  id: "opencode-beads-plugin",
+  id: "opencode-beads-picker-plugin",
   tui,
 }
 

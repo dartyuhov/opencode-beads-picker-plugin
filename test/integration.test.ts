@@ -42,14 +42,14 @@ test("TUI module registers public home and session prompt replacements", async (
     slots: {
       register(plugin: TuiSlotPlugin) {
         registered = plugin
-        return "opencode-beads-plugin"
+        return "opencode-beads-picker-plugin"
       },
     },
   } as unknown as TuiPluginApi
 
   await tuiPlugin.tui(api, undefined, {} as never)
 
-  assert.equal(tuiPlugin.id, "opencode-beads-plugin")
+  assert.equal(tuiPlugin.id, "opencode-beads-picker-plugin")
   assert.equal(typeof registered?.slots.home_prompt, "function")
   assert.equal(typeof registered?.slots.session_prompt, "function")
 })
@@ -58,7 +58,7 @@ test("TUI module replaces prompt beside another TUI plugin", async () => {
   let registered = false
   const api = {
     plugins: { list: () => [
-      { id: "opencode-beads-plugin", enabled: true, active: false },
+      { id: "opencode-beads-picker-plugin", enabled: true, active: false },
       { id: "competing-tui", enabled: true, active: false },
     ] },
     slots: {
