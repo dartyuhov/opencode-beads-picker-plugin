@@ -1,10 +1,13 @@
 # OpenCode Beads picker plugin
 
-`opencode-beads-picker-plugin` adds a live `bd:` Beads issue picker to the OpenCode
-TUI and attaches enriched, read-only issue details to submitted model context.
+`opencode-beads-picker-plugin` adds a live `bd:` Beads issue picker to the
+OpenCode TUI and attaches enriched, read-only issue details to submitted model
+context.
 It is community-maintained and is not affiliated with or endorsed by OpenCode.
 
 The package targets OpenCode `>=1.18.23 <2.0.0` and uses public plugin APIs.
+
+![OpenCode Beads picker demo](assets/beads-picker-demo.gif)
 
 ## Install
 

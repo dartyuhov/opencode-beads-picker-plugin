@@ -11,6 +11,7 @@ for (const file of [
   "dist/server.js",
   "dist/tui.js",
   "dist/shared/index.js",
+  "assets/beads-picker-demo.gif",
   "README.md",
   "LICENSE",
   "CHANGELOG.md",
