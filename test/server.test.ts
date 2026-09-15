@@ -141,6 +141,7 @@ test("keeps typed references usable when detail loading fails", async () => {
   let showCalls = 0
   const hooks = createServerPlugin({
     directory: "/repo",
+    now: () => now,
     runner: async ({ args }) => {
       if (args[0] === "show") {
         showCalls++
@@ -162,6 +163,7 @@ test("keeps typed references usable when detail loading fails", async () => {
 test("deduplicates repeated selected and typed references", async () => {
   const hooks = createServerPlugin({
     directory: "/repo",
+    now: () => now,
     runner: async ({ args }) => ({
       exitCode: 0,
       stdout: JSON.stringify(args[0] === "show" ? [{ ...issue, description: "Current details" }] : [issue]),
@@ -189,6 +191,7 @@ test("deduplicates repeated selected and typed references", async () => {
 test("omits stale references while retaining fresh metadata", async () => {
   const hooks = createServerPlugin({
     directory: "/repo",
+    now: () => now,
     runner: async () => ({ exitCode: 0, stdout: JSON.stringify([issue]) }),
   })
   const output = outputFor("bd:stale bd:opencode-beads-plugin-on0.4")
@@ -204,6 +207,7 @@ test("omits stale references while retaining fresh metadata", async () => {
 test("accepts sentence punctuation after a Beads reference", async () => {
   const hooks = createServerPlugin({
     directory: "/repo",
+    now: () => now,
     runner: async () => ({ exitCode: 0, stdout: JSON.stringify([issue]) }),
   })
   const output = outputFor("Use bd:opencode-beads-plugin-on0.4.")
@@ -216,6 +220,7 @@ test("accepts sentence punctuation after a Beads reference", async () => {
 test("uses the Beads reference range including its prefix", async () => {
   const hooks = createServerPlugin({
     directory: "/repo",
+    now: () => now,
     runner: async ({ args }) => ({
       exitCode: 0,
       stdout: JSON.stringify(args[0] === "show" ? [{ ...issue, description: "details" }] : [issue]),
@@ -235,6 +240,7 @@ test("uses the Beads reference range including its prefix", async () => {
 test("ignores trailing punctuation when resolving a Beads reference", async () => {
   const hooks = createServerPlugin({
     directory: "/repo",
+    now: () => now,
     runner: async () => ({ exitCode: 0, stdout: JSON.stringify([issue]) }),
   })
   const output = outputFor("Use bd:opencode-beads-plugin-on0.4, then continue.")
@@ -249,6 +255,7 @@ test("refreshes Beads on every submitted prompt", async () => {
   let showCalls = 0
   const hooks = createServerPlugin({
     directory: "/repo",
+    now: () => now,
     runner: async ({ args }) => {
       if (args[0] === "show") {
         showCalls++
@@ -308,6 +315,7 @@ test("does not invent missing optional metadata", async () => {
   const { status: _status, ...withoutStatus } = issue
   const hooks = createServerPlugin({
     directory: "/repo",
+    now: () => now,
     runner: async () => ({ exitCode: 0, stdout: JSON.stringify([withoutStatus]) }),
   })
   const output = outputFor("bd:opencode-beads-plugin-on0.4")

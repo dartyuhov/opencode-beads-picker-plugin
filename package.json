@@ -1,7 +1,9 @@
 {
   "name": "opencode-beads-plugin",
   "version": "0.1.0",
+  "description": "OpenCode plugin that adds a live Beads issue picker and enriched issue context.",
   "type": "module",
+  "main": "./dist/server.js",
   "exports": {
     ".": {
       "types": "./dist/server.d.ts",
@@ -22,8 +24,9 @@
   },
   "files": [
     "dist",
-    "opencode.json",
-    "tui.json"
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "engines": {
     "opencode": ">=1.18.23 <2.0.0"
@@ -34,7 +37,8 @@
     "test:target": "node --test --import tsx test/target-runtime.test.ts",
     "test:tui": "bun test test/tui.test.tsx",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "verify": "npm run typecheck && npm test && npm run test:tui && npm run build && npm run test:target"
+    "pack:check": "npm run build && node scripts/pack-check.mjs",
+    "verify": "npm run typecheck && npm test && npm run test:tui && npm run pack:check && npm run test:target"
   },
   "devDependencies": {
     "@opencode-ai/plugin": "1.18.23",
@@ -52,5 +56,25 @@
     "@opentui/keymap": ">=0.4.5 <0.5.0",
     "@opentui/solid": ">=0.4.5 <0.5.0",
     "solid-js": ">=1.9.12 <2.0.0"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "beads",
+    "issue-tracker",
+    "tui"
+  ],
+  "author": "dartyuhov",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dartyuhov/opencode-beads-plugin.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dartyuhov/opencode-beads-plugin/issues"
+  },
+  "homepage": "https://github.com/dartyuhov/opencode-beads-plugin#readme",
+  "publishConfig": {
+    "access": "public"
   }
 }
