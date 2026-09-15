@@ -34,7 +34,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "node --test --import tsx test/**/*.test.ts test/**/*.test.tsx",
+    "test": "node --test --import tsx test/*.test.ts test/*.test.tsx",
     "test:target": "node --test --import tsx test/target-runtime.test.ts",
     "test:tui": "bun test test/tui.test.tsx",
     "typecheck": "tsc -p tsconfig.json --noEmit",
