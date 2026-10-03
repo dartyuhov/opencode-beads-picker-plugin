@@ -29,7 +29,7 @@ files when you want both targets enabled:
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["opencode-beads-picker-plugin@0.1.1"]
+  "plugin": ["opencode-beads-picker-plugin@0.2.0"]
 }
 ```
 
@@ -38,7 +38,7 @@ files when you want both targets enabled:
 ```json
 {
   "$schema": "https://opencode.ai/tui.json",
-  "plugin": ["opencode-beads-picker-plugin@0.1.1"]
+  "plugin": ["opencode-beads-picker-plugin@0.2.0"]
 }
 ```
 
@@ -62,8 +62,13 @@ Beads picker. It can coexist with Vimcode and other keymap plugins: Beads only
 consumes picker navigation keys while the picker is open. The server target can
 be enabled independently for context injection.
 
-The plugin runs read-only `bd list --json --limit 1000 --sort updated` from the
-OpenCode worktree. It inherits `BEADS_DIR` from OpenCode when set; otherwise,
+By default, issue search includes every status and any age, with no issue count
+limit. This includes closed, in-progress, and deferred issues, as well as gates,
+infrastructure issues, and templates. The picker displays the five best matches.
+
+The plugin runs read-only
+`bd list --json --limit 0 --sort updated --all --include-gates --include-infra --include-templates`
+from the OpenCode worktree. It inherits `BEADS_DIR` from OpenCode when set; otherwise,
 Beads resolves its nearest repository workspace. On submission, it also runs
 `bd show <issue-id>... --json --long --include-comments` to load descriptions,
 type, owner, timestamps, counts, and comments. The plugin never reads `.envrc`
@@ -72,6 +77,42 @@ files.
 Missing Beads state, malformed output, timeouts, and other discovery failures
 show `No matching items` in an active picker or omit optional attachment context,
 but never block normal prompt editing or submission.
+
+## Configure issue search
+
+You can add optional picker filters through a plugin options tuple in
+`tui.json`. For example, to search up to 1,000 issues and show only open or
+blocked issues active within the last 14 days:
+
+```json
+{
+  "$schema": "https://opencode.ai/tui.json",
+  "plugin": [
+    [
+      "opencode-beads-picker-plugin",
+      {
+        "statuses": ["open", "blocked"],
+        "maxAgeDays": 14,
+        "maxIssues": 1000
+      }
+    ]
+  ]
+}
+```
+
+Each setting is optional:
+
+- `statuses`: A case-insensitive list of allowed statuses. Omit it or use an
+  empty array to include every status.
+- `maxAgeDays`: A positive number of days since creation or the latest update,
+  whichever is newer. Omit it to include any age. When enabled, issues without
+  usable timestamps are excluded.
+- `maxIssues`: A positive integer that caps fetched candidates before status,
+  age, and query matching. Omit it or use `0` for unlimited candidates.
+
+Invalid settings are ignored. Explicit Beads references resolve regardless of
+picker filters. Process timeouts and output-size bounds still apply. Restart
+OpenCode after changing these settings.
 
 ## Local development
 

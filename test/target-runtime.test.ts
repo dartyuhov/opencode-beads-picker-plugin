@@ -298,7 +298,7 @@ async function sendLiteralKeys(socket: string, session: string, keys: string[], 
 }
 
 function countBeadsCalls(contents: string): number {
-  return contents.split("\n").filter((line) => line.endsWith(" list --json --limit 1000 --sort updated")).length
+  return contents.split("\n").filter((line) => line.endsWith(" list --json --limit 0 --sort updated --all --include-gates --include-infra --include-templates")).length
 }
 
 type CapturedRecord = {

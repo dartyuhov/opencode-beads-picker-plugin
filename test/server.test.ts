@@ -311,6 +311,19 @@ test("refreshes without injecting context for normal prompts", async () => {
   assert.equal(output.parts.length, 1)
 })
 
+test("attaches old closed issues referenced explicitly", async () => {
+  const oldIssue = { ...issue, status: "closed", created_at: "2020-01-01T00:00:00Z", updated_at: "2020-01-02T00:00:00Z" }
+  const hooks = createServerPlugin({
+    directory: "/repo",
+    now: () => now,
+    runner: async () => ({ exitCode: 0, stdout: JSON.stringify([oldIssue]) }),
+  })
+  const output = outputFor(`bd:${oldIssue.id}`)
+  await hooks["chat.message"]?.({ sessionID: "session" }, output as never)
+  assert.equal(fileParts(output).length, 1)
+  assert.match(attachmentText(fileParts(output)[0]!.url), /status: closed/)
+})
+
 test("does not invent missing optional metadata", async () => {
   const { status: _status, ...withoutStatus } = issue
   const hooks = createServerPlugin({

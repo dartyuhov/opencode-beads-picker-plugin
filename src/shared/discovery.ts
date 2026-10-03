@@ -41,7 +41,13 @@ export type BeadsProcessResult = {
 
 export type BeadsProcessRunner = (request: BeadsProcessRequest) => Promise<BeadsProcessResult>
 
-export type BeadsDiscoveryOptions = {
+export type BeadsSearchOptions = {
+  statuses?: string[]
+  maxAgeDays?: number
+  maxIssues?: number
+}
+
+export type BeadsDiscoveryOptions = BeadsSearchOptions & {
   directory: string
   worktree?: string
   env?: NodeJS.ProcessEnv
@@ -66,22 +72,44 @@ export type BeadsDiscoveryFailure =
   | "malformed-json"
   | "unexpected-response"
 
-const excludedStatuses = new Set(["closed", "in_progress", "deferred"])
 const requestTimeoutMs = 1000
 const maxOutputBytes = 2 * 1024 * 1024
-const fourteenDaysMs = 14 * 24 * 60 * 60 * 1000
+const dayMs = 24 * 60 * 60 * 1000
+
+export function parseBeadsSearchOptions(value: unknown): BeadsSearchOptions {
+  if (!isRecord(value)) return {}
+  const options: BeadsSearchOptions = {}
+  if (Array.isArray(value.statuses) && value.statuses.every((status) => nonEmptyString(status) !== undefined)) {
+    options.statuses = value.statuses.map((status: string) => status.trim().toLowerCase())
+  }
+  if (typeof value.maxAgeDays === "number" && Number.isFinite(value.maxAgeDays) && value.maxAgeDays > 0) {
+    options.maxAgeDays = value.maxAgeDays
+  }
+  if (typeof value.maxIssues === "number" && Number.isSafeInteger(value.maxIssues) && value.maxIssues >= 0) {
+    options.maxIssues = value.maxIssues
+  }
+  return options
+}
 
 export function createBeadsDiscovery(options: BeadsDiscoveryOptions): BeadsDiscovery {
   let lastFailure: BeadsDiscoveryFailure | undefined
+  const searchOptions = parseBeadsSearchOptions(options)
 
   return {
     get lastFailure() {
       return lastFailure
     },
     async search(query) {
-      const loaded = await loadIssues(options)
+      const loaded = await loadIssues(options, searchOptions.maxIssues)
       lastFailure = loaded.failure
-      return rankIssues(loaded.issues, query).slice(0, 5)
+      const cutoff = searchOptions.maxAgeDays === undefined
+        ? undefined
+        : (options.now?.() ?? new Date()).getTime() - searchOptions.maxAgeDays * dayMs
+      const issues = loaded.issues.filter((issue) => {
+        if (searchOptions.statuses?.length && !searchOptions.statuses.includes(issue.status?.trim().toLowerCase() ?? "")) return false
+        return cutoff === undefined || latestActivity(issue) >= cutoff
+      })
+      return rankIssues(issues, query).slice(0, 5)
     },
     async resolve(ids) {
       const loaded = await loadIssues(options)
@@ -103,11 +131,10 @@ type LoadedIssues = {
   failure?: BeadsDiscoveryFailure
 }
 
-async function loadIssues(options: BeadsDiscoveryOptions): Promise<LoadedIssues> {
-  const now = options.now?.() ?? new Date()
+async function loadIssues(options: BeadsDiscoveryOptions, maxIssues = 0): Promise<LoadedIssues> {
   const request: BeadsProcessRequest = {
     command: "bd",
-    args: ["list", "--json", "--limit", "1000", "--sort", "updated"],
+    args: ["list", "--json", "--limit", String(maxIssues), "--sort", "updated", "--all", "--include-gates", "--include-infra", "--include-templates"],
     cwd: usableWorktree(options.worktree) ?? options.directory,
     env: options.env ?? process.env,
     timeoutMs: requestTimeoutMs,
@@ -124,7 +151,7 @@ async function loadIssues(options: BeadsDiscoveryOptions): Promise<LoadedIssues>
   if (result.failure) return { issues: [], failure: result.failure }
   if (result.exitCode !== 0) return { issues: [], failure: "nonzero-exit" }
   if (Buffer.byteLength(result.stdout, "utf8") > maxOutputBytes) return { issues: [], failure: "oversized-output" }
-  return parseIssues(result.stdout, now)
+  return parseIssues(result.stdout, maxIssues)
 }
 
 async function loadIssueDetails(options: BeadsDiscoveryOptions, ids: string[]): Promise<BeadsIssue[]> {
@@ -165,7 +192,7 @@ async function loadIssueDetails(options: BeadsDiscoveryOptions, ids: string[]): 
   return records.flatMap((record) => parseIssueDetails(record))
 }
 
-function parseIssues(stdout: string, now: Date): LoadedIssues {
+function parseIssues(stdout: string, maxIssues: number): LoadedIssues {
   let value: unknown
   try {
     value = JSON.parse(stdout)
@@ -180,25 +207,18 @@ function parseIssues(stdout: string, now: Date): LoadedIssues {
       : null
   if (!records) return { issues: [], failure: "unexpected-response" }
 
-  const cutoff = now.getTime() - fourteenDaysMs
   return {
-    issues: records.slice(0, 1000).flatMap((record) => {
+    issues: (maxIssues > 0 ? records.slice(0, maxIssues) : records).flatMap((record) => {
       if (!isRecord(record)) return []
       const id = nonEmptyString(record.id)
       const title = nonEmptyString(record.title)
       const rawCreatedAt = nonEmptyString(record.created_at)
       const rawUpdatedAt = nonEmptyString(record.updated_at)
-      if (!id || !title || (!rawCreatedAt && !rawUpdatedAt)) return []
+      if (!id || !title) return []
 
       const createdTime = parseTimestamp(rawCreatedAt)
       const updatedTime = parseTimestamp(rawUpdatedAt)
-      if (createdTime === undefined && updatedTime === undefined) return []
-      if (Math.max(createdTime ?? Number.NEGATIVE_INFINITY, updatedTime ?? Number.NEGATIVE_INFINITY) < cutoff) {
-        return []
-      }
-
       const status = nonEmptyString(record.status)
-      if (status && excludedStatuses.has(status.trim().toLowerCase())) return []
 
       const issue: BeadsIssue = { id, title }
       if (status !== undefined) issue.status = status
@@ -275,8 +295,9 @@ function rankIssues(issues: BeadsIssue[], query: string): BeadsIssue[] {
         const rightScore = right.scores[index] ?? 0
         if (rightScore !== leftScore) return rightScore - leftScore
       }
-      const activityDifference = latestActivity(right.issue) - latestActivity(left.issue)
-      if (activityDifference !== 0) return activityDifference
+      const leftActivity = latestActivity(left.issue)
+      const rightActivity = latestActivity(right.issue)
+      if (leftActivity !== rightActivity) return rightActivity > leftActivity ? 1 : -1
       const idDifference = left.issue.id < right.issue.id ? -1 : left.issue.id > right.issue.id ? 1 : 0
       return idDifference !== 0 ? idDifference : left.index - right.index
     })

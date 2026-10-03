@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { createBeadsDiscovery, type BeadsProcessRequest } from "../src/shared/discovery.js"
+import { createBeadsDiscovery, parseBeadsSearchOptions, type BeadsProcessRequest } from "../src/shared/discovery.js"
 
 const now = new Date("2026-08-26T12:00:00.000Z")
 
@@ -63,7 +63,7 @@ test("discovers issues through bd from the OpenCode worktree and inherited envir
   assert.equal(requests.length, 1)
   assert.deepEqual(requests[0], {
     command: "bd",
-    args: ["list", "--json", "--limit", "1000", "--sort", "updated"],
+    args: ["list", "--json", "--limit", "0", "--sort", "updated", "--all", "--include-gates", "--include-infra", "--include-templates"],
     cwd: "/repo/worktree",
     env: { PATH: "/bin", BEADS_DIR: "/shared/.beads" },
     timeoutMs: 1000,
@@ -152,42 +152,59 @@ test("maps Beads assignees to attachment owners", async () => {
   }])
 })
 
-test("rejects records without required values or usable timestamps", async () => {
+test("rejects records without an ID or title", async () => {
   const records = [
     issue({ id: "" }),
     issue({ title: "" }),
-    issue({ created_at: "not a date", updated_at: "also not a date" }),
-    issue({ created_at: undefined, updated_at: undefined }),
   ]
 
   assert.deepEqual(await discoveryFor(records).search(""), [])
 })
 
-test("includes issues recent by either timestamp and includes the exact cutoff", async () => {
+test("includes old issues and records without usable timestamps by default", async () => {
+  const records = [
+    issue({ id: "old", created_at: "2020-01-01T00:00:00Z", updated_at: "2020-01-02T00:00:00Z" }),
+    issue({ id: "no-dates", created_at: undefined, updated_at: undefined }),
+    issue({ id: "bad-dates", created_at: "not a date", updated_at: "not a date" }),
+  ]
+  const results = await discoveryFor(records).search("")
+  assert.deepEqual(results.map(({ id }) => id), ["old", "bad-dates", "no-dates"])
+  assert.equal(results[1]?.createdAt, undefined)
+  assert.equal(results[1]?.updatedAt, undefined)
+})
+
+test("optionally filters by latest activity and includes the exact cutoff", async () => {
   const cutoff = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString()
   const records = [
     issue({ id: "created-only", created_at: cutoff, updated_at: "2026-08-01T00:00:00.000Z" }),
     issue({ id: "updated-only", created_at: "2026-08-01T00:00:00.000Z", updated_at: cutoff }),
     issue({ id: "recent-both" }),
     issue({ id: "old-both", created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-02T00:00:00.000Z" }),
+    issue({ id: "no-dates", created_at: undefined, updated_at: undefined }),
   ]
 
-  assert.deepEqual((await discoveryFor(records).search("" )).map(({ id }) => id), [
+  assert.deepEqual((await discoveryFor(records, { maxAgeDays: 14 }).search("")).map(({ id }) => id), [
     "recent-both",
     "created-only",
     "updated-only",
   ])
 })
 
-test("excludes closed, in-progress, and deferred issues case-insensitively", async () => {
+test("includes every status by default and supports a case-insensitive allowlist", async () => {
   const records = [
     issue({ id: "closed", status: "CLOSED" }),
     issue({ id: "in-progress", status: "In_Progress" }),
     issue({ id: "deferred", status: "DEFERRED" }),
     issue({ id: "open", status: "OPEN" }),
+    issue({ id: "blocked", status: "blocked" }),
+    issue({ id: "custom", status: "custom" }),
+    issue({ id: "unknown", status: undefined }),
   ]
 
-  assert.deepEqual((await discoveryFor(records).search("" )).map(({ id }) => id), ["open"])
+  const discovery = discoveryFor(records)
+  for (const { id } of records) assert.equal((await discovery.search(String(id)))[0]?.id, id)
+  assert.deepEqual((await discoveryFor(records, { statuses: [" OPEN ", "Blocked"] }).search("")).map(({ id }) => id), ["blocked", "open"])
+  assert.equal((await discoveryFor(records, { statuses: [] }).search("closed"))[0]?.id, "closed")
 })
 
 test("ranks exact, prefix, substring, and subsequence matches by relevance", async () => {
@@ -237,7 +254,7 @@ test("breaks relevance ties by latest activity and then issue ID", async () => {
   assert.deepEqual((await discoveryFor(records).search("same")).map(({ id }) => id), ["alpha", "beta", "zeta"])
 })
 
-test("limits fetched records to 1000 and returned matches to five", async () => {
+test("searches beyond 1000 records by default and returns the five best matches", async () => {
   const records = Array.from({ length: 1001 }, (_, index) => issue({
     id: `issue-${String(index).padStart(4, "0")}`,
     title: "Match",
@@ -255,7 +272,36 @@ test("limits fetched records to 1000 and returned matches to five", async () => 
   const result = await discovery.search("match")
   assert.equal(result.length, 5)
   assert.equal(result[result.length - 1]?.id, "issue-0004")
-  assert.equal(requested?.args[3], "1000")
+  assert.equal(requested?.args[3], "0")
+  assert.equal((await discovery.search("issue-1000"))[0]?.id, "issue-1000")
+})
+
+test("optionally caps fetched issues while resolving references without picker filters", async () => {
+  const requests: BeadsProcessRequest[] = []
+  const records = [
+    issue({ id: "recent" }),
+    issue({ id: "old-closed", status: "closed", created_at: "2020-01-01T00:00:00Z", updated_at: "2020-01-02T00:00:00Z" }),
+  ]
+  const discovery = discoveryFor(records, {
+    statuses: ["open"], maxAgeDays: 14, maxIssues: 1,
+    runner: async (request) => {
+      requests.push(request)
+      return { exitCode: 0, stdout: JSON.stringify(records) }
+    },
+  })
+  assert.deepEqual(await discovery.search("old-closed"), [])
+  assert.equal(requests[0]?.args[3], "1")
+  assert.equal((await discovery.resolve(["old-closed"]))[0]?.id, "old-closed")
+  assert.equal(requests[1]?.args[3], "0")
+})
+
+test("normalizes plugin search options and ignores invalid values", () => {
+  assert.deepEqual(parseBeadsSearchOptions({ statuses: [" OPEN ", "CLOSED"], maxAgeDays: 0.5, maxIssues: 0 }), {
+    statuses: ["open", "closed"], maxAgeDays: 0.5, maxIssues: 0,
+  })
+  for (const value of [undefined, null, [], "invalid", { statuses: [123], maxAgeDays: -1, maxIssues: 1.5 }, { statuses: [""], maxAgeDays: Infinity, maxIssues: -1 }]) {
+    assert.deepEqual(parseBeadsSearchOptions(value), {})
+  }
 })
 
 test("returns no results for process failures without exposing stderr", async () => {

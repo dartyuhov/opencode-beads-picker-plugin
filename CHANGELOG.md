@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0 — October 3, 2026
+
+- Include Beads issues of every status and age in issue search by default,
+  including gates, infrastructure issues, and templates.
+- Remove the default 1,000-issue candidate limit and accept issues without
+  usable timestamps.
+- Add optional `statuses`, `maxAgeDays`, and `maxIssues` picker settings through
+  plugin options in `tui.json`.
+- Resolve explicit Beads references regardless of picker filters.
+
 ## 0.1.1
 
 - Allow OpenCode's npm installer to resolve current OpenTUI releases.

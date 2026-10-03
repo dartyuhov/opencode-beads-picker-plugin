@@ -1,0 +1,67 @@
+name: GitHub Release
+
+on:
+  workflow_run:
+    workflows: [Publish]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'workflow_run' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+          package-manager-cache: false
+      - name: Read package metadata and confirm npm publication
+        id: package
+        run: |
+          set -euo pipefail
+          package_name="$(node -p "require('./package.json').name")"
+          package_version="$(node -p "require('./package.json').version")"
+          published_version="$(npm view "${package_name}@${package_version}" version --registry=https://registry.npmjs.org)"
+          test "$published_version" = "$package_version"
+          echo "name=$package_name" >> "$GITHUB_OUTPUT"
+          echo "version=$package_version" >> "$GITHUB_OUTPUT"
+      - name: Extract changelog section
+        env:
+          VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          node --input-type=commonjs <<'NODE'
+          const { readFileSync, writeFileSync } = require("node:fs")
+          const version = process.env.VERSION
+          const changelog = readFileSync("CHANGELOG.md", "utf8")
+          const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+          const match = new RegExp(`^##\\s+\\[?${escaped}\\]?(?:\\s|$).*$`, "m").exec(changelog)
+          if (!match) throw new Error(`CHANGELOG.md has no section for ${version}`)
+          const bodyStart = match.index + match[0].length
+          const next = /^##\s+/m.exec(changelog.slice(bodyStart))
+          const end = next ? bodyStart + next.index : changelog.length
+          if (!changelog.slice(bodyStart, end).trim()) throw new Error(`Release notes for ${version} are empty`)
+          writeFileSync("release-notes.md", `${changelog.slice(match.index, end).trim()}\n`)
+          NODE
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          PACKAGE_NAME: ${{ steps.package.outputs.name }}
+          VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          set -euo pipefail
+          tag="v${VERSION}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "GitHub Release $tag already exists; skipping."
+          else
+            gh release create "$tag" \
+              --target "$HEAD_SHA" \
+              --title "${PACKAGE_NAME}@${VERSION}" \
+              --notes-file release-notes.md
+          fi

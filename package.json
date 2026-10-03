@@ -1,6 +1,6 @@
 {
   "name": "opencode-beads-picker-plugin",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "OpenCode plugin that adds a live Beads issue picker and enriched issue context.",
   "type": "module",
   "main": "./dist/server.js",

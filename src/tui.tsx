@@ -9,7 +9,7 @@ import type {
 } from "@opencode-ai/plugin/tui"
 import type { BoxRenderable, TextRenderable } from "@opentui/core"
 import { createEffect, createSignal, onCleanup } from "solid-js/dist/solid.js"
-import { beadsAttachmentMime, beadsAttachmentUrl, beadsDisplay, createBeadsDiscovery, createEditorState, createPickerController, reduceEditor, type BeadsDiscovery, type BeadsIssue, type EditorAction, type EditorState, type PickerController } from "./shared/index.js"
+import { beadsAttachmentMime, beadsAttachmentUrl, beadsDisplay, createBeadsDiscovery, createEditorState, createPickerController, parseBeadsSearchOptions, reduceEditor, type BeadsDiscovery, type BeadsIssue, type BeadsSearchOptions, type EditorAction, type EditorState, type PickerController } from "./shared/index.js"
 
 export type PromptReplacement = {
   slot: "session_prompt" | "home_prompt"
@@ -40,6 +40,7 @@ type PromptEditorProps = {
   theme: TuiTheme
   slot: TuiHostSlotMap["home_prompt"] | TuiHostSlotMap["session_prompt"]
   discovery?: BeadsDiscovery
+  searchOptions?: BeadsSearchOptions
 }
 
 export function PromptEditor(props: PromptEditorProps) {
@@ -48,6 +49,7 @@ export function PromptEditor(props: PromptEditorProps) {
   const selectedIssues = new Map<string, BeadsIssue>()
   const sessionID = "session_id" in props.slot ? props.slot.session_id : undefined
   const discovery = props.discovery ?? createBeadsDiscovery({
+    ...props.searchOptions,
     directory: props.api.state.path.directory,
     worktree: props.api.state.path.worktree,
   })
@@ -415,14 +417,15 @@ function PickerRow(props: PickerRowProps) {
   )
 }
 
-export const tui: TuiPlugin = async (api) => {
+export const tui: TuiPlugin = async (api, options) => {
+  const searchOptions = parseBeadsSearchOptions(options)
   api.slots.register({
     slots: {
       session_prompt(ctx, props) {
-        return <PromptEditor api={api} theme={ctx.theme} slot={props} />
+        return <PromptEditor api={api} theme={ctx.theme} slot={props} searchOptions={searchOptions} />
       },
       home_prompt(ctx, props) {
-        return <PromptEditor api={api} theme={ctx.theme} slot={props} />
+        return <PromptEditor api={api} theme={ctx.theme} slot={props} searchOptions={searchOptions} />
       },
     },
   })
