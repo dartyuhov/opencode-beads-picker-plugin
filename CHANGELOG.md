@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1 — October 3, 2026
+
+- Use a three-argument process callback to address empty issue search results
+  observed in OpenCode's Bun runtime.
+- Check real-process discovery with stderr output under Node and Bun.
+
 ## 0.2.0 — October 3, 2026
 
 - Include Beads issues of every status and age in issue search by default,

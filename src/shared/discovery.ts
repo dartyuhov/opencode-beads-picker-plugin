@@ -398,7 +398,8 @@ function runBeadsProcess(request: BeadsProcessRequest): Promise<BeadsProcessResu
         maxBuffer: request.maxOutputBytes,
         encoding: "utf8",
       },
-      (error, stdout) => {
+      // Keep the stderr parameter: OpenCode's Bun runtime can stall with a two-argument callback.
+      (error, stdout, _stderr) => {
         resolve({
           exitCode: error ? (typeof error.code === "number" ? error.code : 1) : 0,
           stdout: typeof stdout === "string" ? stdout : String(stdout ?? ""),

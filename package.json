@@ -1,6 +1,6 @@
 {
   "name": "opencode-beads-picker-plugin",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "OpenCode plugin that adds a live Beads issue picker and enriched issue context.",
   "type": "module",
   "main": "./dist/server.js",
@@ -36,7 +36,7 @@
     "build": "tsc -p tsconfig.json",
     "test": "node --test --import tsx test/*.test.ts test/*.test.tsx",
     "test:target": "node --test --import tsx test/target-runtime.test.ts",
-    "test:tui": "bun test test/tui.test.tsx",
+    "test:tui": "bun test test/tui.test.tsx test/process.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "pack:check": "npm run build && node scripts/pack-check.mjs",
     "verify": "npm run typecheck && npm test && npm run test:tui && npm run pack:check && npm run test:target"
